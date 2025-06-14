@@ -2,8 +2,9 @@ package in.jolt;
 
 public class AttendanceApp {
 
-    public static void start() {
+    public static void start(int port) {
         Jolt.GET("/", (req,res) -> {
+            Jolt.authorizeClient(req,res,"Site-Access");
             res.setBody(new html("src/main/resources/index.html"));
         });
         Jolt.GET("/favicon.ico", (req,res) -> {
@@ -25,10 +26,8 @@ public class AttendanceApp {
         Jolt.GET("/login", (req,res) -> {
             res.setBody(new html("src/main/resources/login.html"));
         });
-        Jolt.listen(5000, () -> {
-            System.out.println("The Server is Running...");
+        Jolt.listen(port, () -> {
+            System.out.println("The Server is Running at port "+port+"...");
         });
-        added code 
-
     }
 }

@@ -6,22 +6,29 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.function.BiConsumer;
-
 public class Jolt {
     Request req;
     Response res;
     Socket socket;
     int callBackLen;
-
+    String authType;
     private Jolt(Socket socket) {
         Response.statusMapper();
         req=new Request();
         res=new Response();
         this.socket=socket;
+        authType="Bearer";
     }
     static void runJoltThread(Socket socket){
         Jolt serverThread = new Jolt(socket);
         serverThread.handleClient();
+    }
+    static boolean authorizeClient(Request req,Response res,String realm){
+        if(req.authorize())
+        return true;
+        res.statusCode=401;
+        res.headers.put("WWW-Authenticate","Basic realm=\""+realm+"\", error=\""+req.authFlag+"\"");
+        return false;
     }
     void next() {
         callBackLen++;
@@ -88,7 +95,7 @@ public class Jolt {
             e.printStackTrace();
         }
     }
-
+    
     void handleRequest() {
         switch (req.method) {
             case ("GET") -> {
