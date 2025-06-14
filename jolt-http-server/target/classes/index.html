@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attendance App</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      body {
+        background: #f4f4f9;
+        color: #333;
+      }
+
+      header {
+        background-color: #4caf50;
+        padding: 1rem 2rem;
+        color: white;
+        text-align: center;
+        font-size: 1.8rem;
+        font-weight: bold;
+      }
+
+      .container {
+        max-width: 1000px;
+        margin: 2rem auto;
+        padding: 1rem;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .class-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+
+      .class-item {
+        background: #e8f5e9;
+        padding: 1rem 1.5rem;
+        border: 1px solid #c8e6c9;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: 0.3s;
+      }
+
+      .class-item:hover {
+        background: #c8e6c9;
+      }
+
+      .cta {
+        text-align: center;
+        margin-top: 2rem;
+      }
+
+      .cta button {
+        background-color: #4caf50;
+        border: none;
+        padding: 1rem 2rem;
+        font-size: 1.2rem;
+        color: white;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: 0.3s;
+      }
+
+      .cta button:hover {
+        background-color: #388e3c;
+      }
+
+      footer {
+        margin-top: 3rem;
+        text-align: center;
+        font-size: 0.9rem;
+        color: #999;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Attendance App</header>
+
+    <div class="container">
+      <h2>Select a Class</h2>
+      <div class="class-bar">
+        <div class="class-item">Class 1A</div>
+        <div class="class-item">Class 1B</div>
+        <div class="class-item">Class 2A</div>
+        <div class="class-item">Class 2B</div>
+        <div class="class-item">Class 3A</div>
+        <div class="class-item">Class 3B</div>
+        <!-- Add more as needed -->
+      </div>
+
+      <div class="cta">
+        <button onclick="alert('Start taking attendance!')">
+          Take Attendance
+        </button>
+      </div>
+    </div>
+
+    <footer>© 2025 AttendanceApp. All rights reserved.</footer>
+  </body>
+</html>
