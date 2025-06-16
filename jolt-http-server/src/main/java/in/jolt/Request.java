@@ -1,8 +1,7 @@
 package in.jolt;
 
 import java.util.*;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
+import org.json.JSONObject;
 
 class Request {
 
@@ -22,20 +21,20 @@ class Request {
         return body;
     }
 boolean authorize(){
-        if(headers.get("Authorization")==null){
+        String authType=headers.get("Authorization");
+        if(authType==null){
             authFlag="Not Authenticated";
+            return false;
         }
-        else if(headers.get("Authorization").split(" ")[0].equals("Bearer")){
+        else
+        authType=authType.split(" ")[0];
+        if(authType.equals("Bearer"))
         authFlag=Auth.AuthenticateJWT(headers.get("Authorization").split(" ")[1],claim);
+        else if(authType.equals("Basic"))
+        authFlag=Auth.basicAuthenticate(headers.get("Authorization").split(" ")[1],claim);
         if(authFlag.equals("Valid"))
         return true;
         else
-        {
-        }
-        }
-        else if(headers.get("Authorization").split(" ")[1].equals("Basic")){
-
-        }
         return false;
     }
 }

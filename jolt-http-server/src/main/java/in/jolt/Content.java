@@ -5,8 +5,7 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import javax.imageio.ImageIO;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
+import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 
 abstract class Content {
@@ -30,13 +29,13 @@ class JSON extends Content {
 
     @Override
     void serialize() {
-        serialized = json.toJSONString().getBytes();
+        serialized = json.toString().getBytes();
     }
 
     @Override
     void deserialize() {
         String str = new String(serialized, StandardCharsets.UTF_8);
-        json = (JSONObject) JSONValue.parse(str);
+        json = new JSONObject(str);
     }
 
     String get(String key) {

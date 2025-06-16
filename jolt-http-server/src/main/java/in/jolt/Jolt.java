@@ -23,12 +23,12 @@ public class Jolt {
         Jolt serverThread = new Jolt(socket);
         serverThread.handleClient();
     }
-    static boolean authorizeClient(Request req,Response res,String realm){
+    static void authorizeClient(Request req,Response res,String realm){
         if(req.authorize())
-        return true;
+        return;
         res.statusCode=401;
         res.headers.put("WWW-Authenticate","Basic realm=\""+realm+"\", error=\""+req.authFlag+"\"");
-        return false;
+        throw new UnauthorizedException(req.authFlag);
     }
     void next() {
         callBackLen++;
