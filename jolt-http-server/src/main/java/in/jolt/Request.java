@@ -16,6 +16,7 @@ class Request {
         headers = new HashMap<>();
         body = null;
         authFlag="";
+        claim=new JSONObject();
     }
     Content getBody(){
         return body;
@@ -32,6 +33,8 @@ boolean authorize(){
         authFlag=Auth.AuthenticateJWT(headers.get("Authorization").split(" ")[1],claim);
         else if(authType.equals("Basic"))
         authFlag=Auth.basicAuthenticate(headers.get("Authorization").split(" ")[1],claim);
+        System.out.println(authFlag+"-flag");
+System.out.println(headers.get("Authorization").split(" ")[1]);
         if(authFlag.equals("Valid"))
         return true;
         else

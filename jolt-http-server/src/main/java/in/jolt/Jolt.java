@@ -51,7 +51,15 @@ public class Jolt {
             Handlers.postHandlers.get(url).add(r);
         }
     }
-
+    @SafeVarargs
+    static void PUT(String url, BiConsumer<Request,Response>... callBack){
+         if(Handlers.postHandlers==null)
+        Handlers.initializePOST();
+        Handlers.postHandlers.put(url, new ArrayList<>());
+        for (BiConsumer<Request,Response> r : callBack) {
+            Handlers.postHandlers.get(url).add(r);
+        }
+    }
     void parseRequest(BufferedReader reader) {
         String line;
         try {
@@ -73,7 +81,7 @@ public class Jolt {
             }
 
             // Read body
-            if (req.headers.get("Content-Length") != null) {
+            if (req.headers.get("Content-Type") != null) {
                 switch (req.headers.get("Content-Type")) {
                     case ("application/json") -> {
                         req.body = new JSON();
@@ -103,7 +111,7 @@ public class Jolt {
                     res.statusCode = 200;
                 } else {
                     res.statusCode = 404;
-                    break;
+                    return;
                 }
                 int i = 0;
                 while (i == callBackLen) {
@@ -118,7 +126,7 @@ public class Jolt {
                     res.statusCode = 200;
                 } else {
                     res.statusCode = 404;
-                    break;
+                    return;
                 }
                 while (i == callBackLen) {
                     Handlers.postHandlers.get(req.url).get(i).accept(req, res);

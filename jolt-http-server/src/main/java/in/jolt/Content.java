@@ -23,7 +23,7 @@ class JSON extends Content {
 
     JSONObject json = new JSONObject();
 
-    void add(String key, String value) {
+    void add(String key, Object value) {
         json.put(key, value);
     }
 
