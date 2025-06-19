@@ -25,6 +25,7 @@ public class AttendanceApp {
     }
 
     public static void start(int port) {
+        Router router = new Router();
         Jolt.GET("/", (req, res) -> {
             try {
                 Jolt.authorizeClient(req, res, "Site-Access");
@@ -41,7 +42,7 @@ public class AttendanceApp {
             localObJson.add("Name", "RegNo");
             localObJson.add("Thiru", "22BEC1473");
         });
-        Jolt.POST("/login", (req, res) -> {
+        router.POST("/login", (req, res) -> {
             JSON localObJson = (JSON) req.getBody();
             String userName = (String) localObJson.get("user_name");
             String password = (String) localObJson.get("password");
@@ -58,6 +59,7 @@ public class AttendanceApp {
             res.setBody(new html("src/main/resources/login.html"));
             // System.out.println("Body setted");
         });
+        Jolt.use("/auth", router);
         Jolt.listen(port, () -> {
             System.out.println("The Server is Running at port " + port + "...");
         });

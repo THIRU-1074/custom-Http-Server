@@ -12,6 +12,7 @@ public class Jolt {
     Response res;
     int callBackLen;
     String authType;
+    static Map<String, Router> routers;
 
     private Jolt(Request req, Response res) {
         Response.statusMapper();
@@ -26,34 +27,43 @@ public class Jolt {
     }
 
     void handleRequest() {
+        Router router = null;
+        String url = req.url;
+        Map<String, ArrayList<BiConsumer<Request, Response>>> handler = null;
+        if (url.charAt(url.length() - 1) != '/')
+            url += "/";
+        for (String key : Jolt.routers.keySet()) {
+            if (url.startsWith(key)) {
+                router = Jolt.routers.get(key);
+                url = url.substring(key.length() - 1);
+                break; // only one such key exists
+            }
+        }
         switch (req.method) {
             case ("GET") -> {
-                if (Handlers.getHandlers.get(req.url) != null) {
-                    res.statusCode = 200;
-                } else {
-                    res.statusCode = 404;
-                    break;
-                }
-                int i = 0;
-                while (i == callBackLen) {
-                    Handlers.getHandlers.get(req.url).get(i).accept(req, res);
-                    i++;
-                }
+                handler = (router == null) ? (Router.coreGetHandlers) : (router.routerGetHandlers);
                 break;
             }
             case ("POST") -> {
-                int i = 0;
-                if (Handlers.postHandlers.get(req.url) != null) {
-                    res.statusCode = 200;
-                } else {
-                    res.statusCode = 404;
-                    break;
-                }
-                while (i == callBackLen) {
-                    Handlers.postHandlers.get(req.url).get(i).accept(req, res);
-                    i++;
-                }
+                handler = (router == null) ? (Router.corePostHandlers) : (router.routerPostHandlers);
+                break;
             }
+            case ("PUT") -> {
+                handler = (router == null) ? (Router.corePutHandlers) : (router.routerPutHandlers);
+                break;
+            }
+        }
+        if (handler != null && handler.get(url) != null) {
+            res.statusCode = 200;
+        } else {
+            res.statusCode = 404;
+            res.isReady = true;
+            return;
+        }
+        int i = 0;
+        while (i == callBackLen) {
+            handler.get(url).get(i).accept(req, res);
+            i++;
         }
         res.isReady = true;
         // System.out.println("Readiness has been set...");
@@ -73,32 +83,53 @@ public class Jolt {
 
     @SafeVarargs
     static void GET(String url, BiConsumer<Request, Response>... callBack) {
-        if (Handlers.getHandlers == null)
-            Handlers.initializeGET();
-        Handlers.getHandlers.put(url, new ArrayList<>());
+        if (url.charAt(url.length() - 1) != '/')
+            url += "/";
+        if (Router.coreGetHandlers == null)
+            Router.initializeGET();
+        Router.coreGetHandlers.put(url, new ArrayList<>());
         for (BiConsumer<Request, Response> r : callBack) {
-            Handlers.getHandlers.get(url).add(r);
+            Router.coreGetHandlers.get(url).add(r);
         }
     }
 
     @SafeVarargs
     static void POST(String url, BiConsumer<Request, Response>... callBack) {
-        if (Handlers.postHandlers == null)
-            Handlers.initializePOST();
-        Handlers.postHandlers.put(url, new ArrayList<>());
+        if (url.charAt(url.length() - 1) != '/')
+            url += "/";
+        if (Router.corePostHandlers == null)
+            Router.initializePOST();
+        Router.corePostHandlers.put(url, new ArrayList<>());
         for (BiConsumer<Request, Response> r : callBack) {
-            Handlers.postHandlers.get(url).add(r);
+            Router.corePostHandlers.get(url).add(r);
         }
     }
 
     @SafeVarargs
     static void PUT(String url, BiConsumer<Request, Response>... callBack) {
-        if (Handlers.postHandlers == null)
-            Handlers.initializePOST();
-        Handlers.postHandlers.put(url, new ArrayList<>());
+        if (url.charAt(url.length() - 1) != '/')
+            url += "/";
+        if (Router.corePutHandlers == null)
+            Router.initializePOST();
+        Router.corePutHandlers.put(url, new ArrayList<>());
         for (BiConsumer<Request, Response> r : callBack) {
-            Handlers.postHandlers.get(url).add(r);
+            Router.corePutHandlers.get(url).add(r);
         }
+    }
+
+    @SafeVarargs
+    static void ALL(String url, BiConsumer<Request, Response>... callBack) {
+        GET(url, callBack);
+        POST(url, callBack);
+        PUT(url, callBack);
+    }
+
+    static void use(String url, Router router) {
+        if (Jolt.routers == null)
+            Jolt.routers = new HashMap<>();
+        if (url.charAt(url.length() - 1) != '/')
+            url += "/";
+        Jolt.routers.put(url, router);
     }
 
     static void listen(int port, Runnable callBack) {
