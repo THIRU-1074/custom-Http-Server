@@ -1,4 +1,4 @@
-# 🚀 Jolt-A custom Http Frame work
+### ⚡⚡Jolt⚡⚡ - A custom Http Frame work 🚀
 
 A lightweight, customizable HTTP server written in Java.  
 It handles HTTP/1.0 and HTTP/1.1 requests, allows defining endpoints, and supports flexible response manipulation.
@@ -9,6 +9,8 @@ It handles HTTP/1.0 and HTTP/1.1 requests, allows defining endpoints, and suppor
     - Can handle multiple Clients concurrently 
     - Can receive multiple Requests when the Request handling and Responding is on Progress.
     - The responding order is maintained with Response queueing ensuring consistency accross important db Transactions.
+
+- 💡The framework has url Routers to isolate the API endpoints, it also allows divide and conquer in design and teams to work on developing different Routers and combine them for a specific domain.
 
 -  A simple Attendance Application has been made with Jolt (ie the framework) to demonstrate the working.
 
