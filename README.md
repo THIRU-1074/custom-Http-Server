@@ -5,7 +5,7 @@ It handles HTTP/1.0 and HTTP/1.1 requests, allows defining endpoints, and suppor
 
 - 🚂inspired from simplicity of Express.js API, the Framework Interface would appear in similar way 
 
-- 🧶ithreaded FrameWork, 
+- 🧶multithreaded FrameWork, 
     - Can handle multiple Clients concurrently 
     - Can receive multiple Requests when the Request handling and Responding is on Progress.
     - The responding order is maintained with Response queueing ensuring consistency accross important db Transactions.
