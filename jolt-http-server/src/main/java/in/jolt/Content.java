@@ -88,6 +88,7 @@ class image extends Content {
         this.path = path;
         format = path.substring(path.lastIndexOf('.') + 1);
     }
+
     @Override
     void serialize() {
         BufferedImage bImage;

@@ -11,7 +11,6 @@ public class Client {
         String serverAddress = "192.168.166.198"; // or use IP like "127.0.0.1"
         int port = 5000;
 
-
         try (Socket socket = new Socket(serverAddress, port)) {
             PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             Scanner scanner = new Scanner(System.in);

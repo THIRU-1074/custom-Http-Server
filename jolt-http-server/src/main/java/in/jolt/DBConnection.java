@@ -6,6 +6,7 @@ import java.sql.SQLException;
 
 public class DBConnection {
     private static final String DB_URL = "jdbc:sqlite:AttendanceApp.db";
+
     private DBConnection() {
         // private constructor to prevent instantiation
     }
