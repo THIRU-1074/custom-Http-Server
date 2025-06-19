@@ -3,7 +3,7 @@
 A lightweight, customizable HTTP server written in Java.  
 It handles HTTP/1.0 and HTTP/1.1 requests, allows defining endpoints, and supports flexible response manipulation.
 
-- 🚂spired from simplicity of Express.js API, the Framework Interface would appear in similar way 
+- 🚂inspired from simplicity of Express.js API, the Framework Interface would appear in similar way 
 
 - 🧶ithreaded FrameWork, 
     - Can handle multiple Clients concurrently 
