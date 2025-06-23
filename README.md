@@ -42,7 +42,7 @@ mvn clean package
 ```
 ### Try your Stuff
 
-- Remove the Attendance.java and create your own app.
+- Remove the Attendance.java and NotificationServer.java ( A webhook Service App), then create your own app.
 - The app could be split into multiple files with logically partitioned APIs
 - Make sure to call all the (your_apps).java in our Main.java.
 

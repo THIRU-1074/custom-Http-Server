@@ -41,6 +41,7 @@ public class AttendanceApp {
             JSON localObJson = new JSON();
             localObJson.add("Name", "RegNo");
             localObJson.add("Thiru", "22BEC1473");
+            res.body = localObJson;
         });
         router.POST("/login", (req, res) -> {
             JSON localObJson = (JSON) req.getBody();

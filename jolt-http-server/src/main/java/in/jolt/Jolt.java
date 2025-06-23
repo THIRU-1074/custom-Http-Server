@@ -32,11 +32,13 @@ public class Jolt {
         Map<String, ArrayList<BiConsumer<Request, Response>>> handler = null;
         if (url.charAt(url.length() - 1) != '/')
             url += "/";
-        for (String key : Jolt.routers.keySet()) {
-            if (url.startsWith(key)) {
-                router = Jolt.routers.get(key);
-                url = url.substring(key.length() - 1);
-                break; // only one such key exists
+        if (Jolt.routers != null) {
+            for (String key : Jolt.routers.keySet()) {
+                if (url.startsWith(key)) {
+                    router = Jolt.routers.get(key);
+                    url = url.substring(key.length() - 1);
+                    break; // only one such key exists
+                }
             }
         }
         switch (req.method) {
