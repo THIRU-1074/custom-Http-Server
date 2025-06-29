@@ -12,13 +12,13 @@ public class ClientConnection extends Thread {
     Request req;
     Response res;
 
-    private ClientConnection(Socket socket) {
+    public ClientConnection(Socket socket) {
         this.socket = socket;
     }
 
-    static void connectToClient(Socket socket) {
-        ClientConnection connection = new ClientConnection(socket);
-        connection.handleClient();
+    @Override
+    public void run() {
+        handleClient();
     }
 
     void handleClient() {

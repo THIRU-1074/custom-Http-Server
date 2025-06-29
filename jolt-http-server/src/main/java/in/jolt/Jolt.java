@@ -34,6 +34,7 @@ public class Jolt {
             url += "/";
         if (Jolt.routers != null) {
             for (String key : Jolt.routers.keySet()) {
+                System.out.println(key);
                 if (url.startsWith(key)) {
                     router = Jolt.routers.get(key);
                     url = url.substring(key.length() - 1);
@@ -135,19 +136,15 @@ public class Jolt {
     }
 
     static void listen(int port, Runnable callBack) {
-        while (true) {
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
-                callBack.run();
-                new Thread(() -> {
-                    try {
-                        ClientConnection.connectToClient(serverSocket.accept());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }).run();
-            } catch (IOException e) {
-                e.printStackTrace();
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            callBack.run();
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                new Thread(new ClientConnection(clientSocket)).start();
             }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
+
 }

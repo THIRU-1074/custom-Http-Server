@@ -38,6 +38,8 @@ public class AttendanceApp {
             res.setBody(new image("src/main/resources/image.png"));
         });
         Jolt.GET("/getClassesInfo", (req, res) -> {
+            res.headers.put("Access-Control-Allow-Origin", "*");
+            res.headers.put("X-Content-Type-Options", "nosniff");
             JSON localObJson = new JSON();
             localObJson.add("Name", "RegNo");
             localObJson.add("Thiru", "22BEC1473");
@@ -56,7 +58,9 @@ public class AttendanceApp {
             }
             res.setBody(msg);
         });
-        Jolt.GET("/login", (req, res) -> {
+        router.GET("/login", (req, res) -> {
+            res.headers.put("Access-Control-Allow-Origin", "*");
+            res.headers.put("X-Content-Type-Options", "nosniff");
             res.setBody(new html("src/main/resources/login.html"));
             // System.out.println("Body setted");
         });
