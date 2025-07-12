@@ -28,7 +28,7 @@ public class AttendanceApp {
         Router router = new Router();
         Jolt.GET("/", (req, res) -> {
             try {
-                Jolt.authorizeClient(req, res, "Site-Access");
+                //Jolt.authorizeClient(req, res, "Site-Access");
                 res.setBody(new html("src/main/resources/index.html"));
             } catch (UnauthorizedException e) {
                 e.printStackTrace();
