@@ -14,11 +14,14 @@ class Request {
     JSONObject claim;
     String authFlag;
     String path;
-    String queryString;
+    Map<String,String>urlQueryParams;
+    Map<String,String>urlPathParams;
     boolean isReady;
 
     Request() {
         headers = new HashMap<>();
+        urlQueryParams=new HashMap<>();
+        urlPathParams=new HashMap<>();
         body = null;
         authFlag = "";
         claim = new JSONObject();

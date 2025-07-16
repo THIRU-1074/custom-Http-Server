@@ -1,6 +1,7 @@
 package in.jolt;
 
 import java.sql.*;
+import java.util.Map;
 
 public class AttendanceApp {
     public static boolean authenticate(String userId, String password) {
@@ -63,6 +64,18 @@ public class AttendanceApp {
             res.headers.put("X-Content-Type-Options", "nosniff");
             res.setBody(new html("src/main/resources/login.html"));
             // System.out.println("Body setted");
+        });   
+        Jolt.GET("/paramTest/:param1/:param2",(req,res)->{
+            for (Map.Entry<String, String> entry : req.urlPathParams.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                System.out.println("Key: " + key + ", Value: " + value);
+            }
+            for (Map.Entry<String, String> entry : req.urlQueryParams.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                System.out.println("Key: " + key + ", Value: " + value);
+            }
         });
         Jolt.use("/auth", router);
         Jolt.listen(port, () -> {

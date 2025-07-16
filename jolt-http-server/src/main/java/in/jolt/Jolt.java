@@ -25,7 +25,22 @@ public class Jolt {
         Jolt serverThread = new Jolt(req, res);
         serverThread.handleRequest();
     }
+    private Map<String, String> matchPathParams(String formalPath, String actualPath) {
+        String[] formalParts = formalPath.split("/");
+        String[] actualParts = actualPath.split("/");
 
+        if (formalParts.length != actualParts.length) return null;
+
+        Map<String, String> pathParams = new HashMap<>();
+        for (int i = 0; i < formalParts.length; i++) {
+            if (formalParts[i].startsWith(":")) {
+                pathParams.put(formalParts[i].substring(1), actualParts[i]);
+            } else if (!formalParts[i].equals(actualParts[i])) {
+                return null; // mismatch
+            }
+        }
+        return pathParams;
+    }
     void handleRequest() {
         Router router = null;
         String url = req.url;
@@ -56,16 +71,27 @@ public class Jolt {
                 break;
             }
         }
-        if (handler != null && handler.get(url) != null) {
-            res.statusCode = 200;
-        } else {
-            res.statusCode = 404;
+        ArrayList<BiConsumer<Request,Response>>middleware=null;
+        res.statusCode=404;
+        if (handler != null) {
+            for (String key : handler.keySet()) {
+                req.urlPathParams=matchPathParams(key, req.url);
+                if(req.urlPathParams!=null){
+                    middleware=handler.get(key);
+                    
+                    break;
+                }
+            }
+            if(middleware!=null)
+                res.statusCode = 200;
+        }
+        if(res.statusCode!=200){
             res.isReady = true;
             return;
         }
         int i = 0;
         while (i == callBackLen) {
-            handler.get(url).get(i).accept(req, res);
+            middleware.get(i).accept(req, res);
             i++;
         }
         res.isReady = true;

@@ -48,8 +48,26 @@ public class RequestHandler extends Thread {
             // Start Line
             System.out.println(line);
             req.method = line.split(" ")[0];
-            req.url = line.split(" ")[1];
             req.version = line.split(" ")[2];
+            String fullUrl = line.split(" ")[1];  // "/hello/world?name=thiru&age=21"
+
+            String[] parts = fullUrl.split("\\?", 2); // Limit to 2 parts: before and after '?'
+            String path = parts[0];
+            String queryString = parts.length > 1 ? parts[1] : "";  // Empty if no '?'
+            req.url = path;
+
+            // Split the query string by '&' to get individual key=value pairs
+            String[] pairs = queryString.split("&");
+
+            for (String pair : pairs) {
+                String[] keyValue = pair.split("=", 2); // Limit to 2 to handle '=' in values
+                if (keyValue.length == 2) {
+                    req.urlQueryParams.put(keyValue[0], keyValue[1]);
+                } else if (keyValue.length == 1) {
+                    // Handle case like "flag" (key without value)
+                    req.urlQueryParams.put(keyValue[0], "");
+                }
+            }
 
             // Read Header
             while ((line = reader.readLine()) != null && !(line.isEmpty())) {
