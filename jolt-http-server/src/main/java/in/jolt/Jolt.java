@@ -36,6 +36,7 @@ public class Jolt {
             if (formalParts[i].startsWith(":")) {
                 pathParams.put(formalParts[i].substring(1), actualParts[i]);
             } else if (!formalParts[i].equals(actualParts[i])) {
+                System.out.println("Mismatch...!");
                 return null; // mismatch
             }
         }
@@ -75,10 +76,9 @@ public class Jolt {
         res.statusCode=404;
         if (handler != null) {
             for (String key : handler.keySet()) {
-                req.urlPathParams=matchPathParams(key, req.url);
+                req.urlPathParams=matchPathParams(key, url);
                 if(req.urlPathParams!=null){
                     middleware=handler.get(key);
-                    
                     break;
                 }
             }
@@ -86,6 +86,7 @@ public class Jolt {
                 res.statusCode = 200;
         }
         if(res.statusCode!=200){
+            System.out.println("No middleware found...!");
             res.isReady = true;
             return;
         }
