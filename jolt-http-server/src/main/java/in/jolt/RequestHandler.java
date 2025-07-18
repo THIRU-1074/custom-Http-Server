@@ -34,6 +34,24 @@ public class RequestHandler extends Thread {
             }
         }
     }
+    public String capitalizeHeader(String header) {
+        StringBuilder result = new StringBuilder();
+        boolean capitalizeNext = true;
+        for (char ch : header.toCharArray()) {
+            if (ch == '-') {
+                result.append(ch);
+                capitalizeNext = true;
+            } else {
+                if (capitalizeNext) {
+                    result.append(Character.toUpperCase(ch));
+                    capitalizeNext = false;
+                } else {
+                    result.append(Character.toLowerCase(ch));
+                }
+            }
+        }
+        return result.toString();
+    }
 
     void parseRequest() {
 
@@ -71,12 +89,13 @@ public class RequestHandler extends Thread {
 
             // Read Header
             while ((line = reader.readLine()) != null && !(line.isEmpty())) {
+                line=capitalizeHeader(line);
                 System.out.println(line);
                 req.headers.put(line.split(": ")[0], line.split(": ")[1]);
             }
             parseCookies();
             // Read body
-            if (req.headers.get("Content-Type") != null) {
+            if (req.headers.get("Content-Type") != null ) {
                 switch (req.headers.get("Content-Type")) {
                     case ("application/json") -> {
                         req.body = new JSON();
