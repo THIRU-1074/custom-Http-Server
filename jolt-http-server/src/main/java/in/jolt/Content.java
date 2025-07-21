@@ -34,8 +34,13 @@ class JSON extends Content {
 
     @Override
     void deserialize() {
-        String str = new String(serialized, StandardCharsets.UTF_8);
+        try{
+        String str = new String(serialized, "ISO-8859-1");
         json = new JSONObject(str);
+        }
+        catch(IOException e){
+            e.printStackTrace();
+        }
     }
 
     String get(String key) {
@@ -105,6 +110,24 @@ class image extends Content {
 
     @Override
     void deserialize() {
-
+        try {
+            // create the object of ByteArrayInputStream class
+            // and initialized it with the byte array.
+            ByteArrayInputStream inStreambj = new ByteArrayInputStream(serialized);
+            
+            // read image from byte array
+            BufferedImage newImage = ImageIO.read(inStreambj);
+            // Ensure the directory exists
+            File dir = new File(path);
+            if (!dir.exists()) {
+                dir.mkdirs(); // create directory if not exists
+            }
+            // write output image
+            ImageIO.write(newImage, format, dir);
+            System.out.println("Image generated from the byte array.");
+        } catch (IOException e) {
+            System.err.println("Failed to save image: " + e.getMessage());
+            return;
+        }
     }
 }

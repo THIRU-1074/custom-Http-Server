@@ -50,6 +50,7 @@ public class AttendanceApp {
             JSON localObJson = (JSON) req.getBody();
             String userName = (String) localObJson.get("user_name");
             String password = (String) localObJson.get("password");
+            System.out.println("Credentials:"+userName+" "+password);
             JSON msg = new JSON();
             if (authenticate(userName, password)) {
                 msg.add("JWT", Auth.createJWT(Auth.createJWTPayLoad(userName, "student", "19/6/2025", "21:30")));
@@ -76,6 +77,9 @@ public class AttendanceApp {
                 String value = entry.getValue();
                 System.out.println("Key: " + key + ", Value: " + value);
             }
+        });
+        Jolt.POST("/imageTest",(req,res)->{
+            image img=(image)req.getBody();
         });
         Jolt.use("/auth", router);
         Jolt.listen(port, () -> {
