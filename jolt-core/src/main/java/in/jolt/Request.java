@@ -22,6 +22,7 @@ public final class Request {
     private Map<String, String> query;
     private Map<String, String> cookies;
     private Map<String, String> form;
+    private String remoteAddress;
 
     public Request(
             String method,
@@ -129,6 +130,17 @@ public final class Request {
         } catch (IllegalArgumentException e) {
             throw new HttpException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /** IP address of the connected peer, or {@code null} when unknown. */
+    public String remoteAddress() {
+        return remoteAddress;
+    }
+
+    /** Sets the peer address; the server calls this once per request. */
+    public Request remoteAddress(String address) {
+        this.remoteAddress = address;
+        return this;
     }
 
     /** Per-request value set by middleware, or {@code null}. */

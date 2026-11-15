@@ -70,6 +70,7 @@ public final class JoltTest {
         private final String path;
         private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         private byte[] body = new byte[0];
+        private String remoteAddress = "127.0.0.1";
 
         private Call(App app, String method, String path) {
             this.app = app;
@@ -79,6 +80,12 @@ public final class JoltTest {
 
         public Call header(String name, String value) {
             headers.put(name, value);
+            return this;
+        }
+
+        /** Sets the peer address the handler sees; defaults to {@code 127.0.0.1}. */
+        public Call remoteAddress(String address) {
+            remoteAddress = address;
             return this;
         }
 
@@ -126,6 +133,7 @@ public final class JoltTest {
                             headers,
                             body,
                             mapper);
+            req.remoteAddress(remoteAddress);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             return new Result(app, method + " " + path, res);
         }
