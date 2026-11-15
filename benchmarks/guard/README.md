@@ -5,8 +5,8 @@ performance regression, and token-small docs and code.
 
 | Guard | What it checks | Runs in CI |
 |---|---|---|
-| `LlmsTxtBudgetTest` (jolt-core) | `llms.txt` is at most 7000 characters and identical to the bundled copy | yes (`mvn verify`) |
-| `token-guard.py` | cl100k_base tokens of `llms.txt` (limit 1800) and of the Jolt todo app (limit +5% over `token-baseline.json`) | yes |
+| `LlmsTxtBudgetTest` (jolt-core) | `llms.txt` is at most 8000 characters and identical to the bundled copy | yes (`mvn verify`) |
+| `token-guard.py` | cl100k_base tokens of `llms.txt` (limit 2100) and of the Jolt todo app (limit +5% over `token-baseline.json`) | yes |
 | `perf-guard.py` | median req/s and latency of the todo app against `baseline.json` | **no**, local only |
 
 ## perf-guard.py

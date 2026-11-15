@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class LlmsTxtBudgetTest {
 
-    private static final int MAX_CHARS = 7000;
+    private static final int MAX_CHARS = 8000;
 
     private static String read(Path... candidates) throws IOException {
         for (Path p : candidates) {

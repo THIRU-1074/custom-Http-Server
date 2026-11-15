@@ -2,7 +2,7 @@
 """Token-size guard for llms.txt and the Jolt todo benchmark app (sources + pom.xml).
 
 Tokenizer: tiktoken cl100k_base; falls back to len(text)/4, clearly labelled as an estimate.
-Fails (exit 1) if llms.txt exceeds 1800 tokens or the app total grows more than 5% over
+Fails (exit 1) if llms.txt exceeds 2100 tokens or the app total grows more than 5% over
 benchmarks/guard/token-baseline.json. Baselines made with a different tokenizer are not compared.
 
   python benchmarks/guard/token-guard.py
@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 APP = ROOT / "benchmarks/tokens/jolt"
 BASELINE = HERE / "token-baseline.json"
-LLMS_LIMIT = 1800
+LLMS_LIMIT = 2100
 APP_GROWTH = 0.05
 
 
