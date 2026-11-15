@@ -563,7 +563,7 @@ class ServerTest {
             assertEquals("text/html; charset=utf-8", f.header("Content-Type"));
             assertEquals("application/octet-stream", c.get("/b").header("Content-Type"));
             assertEquals(404, c.get("/m").status());
-            assertEquals(500, c.get("/d").status());
+            assertEquals(404, c.get("/d").status());
         }
     }
 

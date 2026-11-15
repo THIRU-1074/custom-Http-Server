@@ -19,6 +19,7 @@ public final class Response {
     private boolean sent;
     private boolean typeExplicit;
     private boolean secureCookies;
+    private long maxFileBytes = 10L * 1024 * 1024;
 
     public Response(JsonMapper mapper) {
         this.mapper = mapper;
@@ -45,6 +46,12 @@ public final class Response {
     /** Adds {@code Secure} to default cookies; the server sets this from the config. */
     public Response secureCookies(boolean on) {
         this.secureCookies = on;
+        return this;
+    }
+
+    /** Caps the size of files sent by {@code sendFile}; the server sets this from the config. */
+    public Response maxFileBytes(long limit) {
+        this.maxFileBytes = limit;
         return this;
     }
 
@@ -89,10 +96,17 @@ public final class Response {
     /**
      * Sends a file, typed by extension.
      *
-     * @throws HttpException 404 if the file does not exist
+     * @throws HttpException 404 if the file does not exist or is not a regular file, 413 if it is
+     *     larger than the configured cap
      */
     public Response sendFile(Path file) {
         try {
+            if (!Files.isRegularFile(file)) {
+                throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
+            }
+            if (Files.size(file) > maxFileBytes) {
+                throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
+            }
             return send(Files.readAllBytes(file), contentType(file));
         } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
@@ -105,7 +119,8 @@ public final class Response {
      * Sends {@code relative} resolved under {@code root}; the file must stay inside {@code root}
      * after normalisation and symlink resolution.
      *
-     * @throws HttpException 403 if the path escapes the root, 404 if it is not a regular file
+     * @throws HttpException 403 if the path escapes the root, 404 if it is not a regular file, is
+     *     unreachable or has a dotfile segment, 413 if it exceeds the size cap
      */
     public Response sendFile(Path root, String relative) {
         if (relative.indexOf('\0') >= 0) {
@@ -121,6 +136,11 @@ public final class Response {
             if (!target.startsWith(base)) {
                 throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
             }
+            for (Path segment : base.relativize(target)) {
+                if (segment.toString().startsWith(".")) {
+                    throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
+                }
+            }
             Path real = target.toRealPath();
             if (!real.startsWith(base)) {
                 throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
@@ -129,10 +149,8 @@ public final class Response {
                 throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
             }
             return sendFile(real);
-        } catch (java.nio.file.InvalidPathException | NoSuchFileException e) {
+        } catch (java.nio.file.InvalidPathException | IOException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
-        } catch (IOException e) {
-            throw new HttpException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot read file");
         }
     }
 

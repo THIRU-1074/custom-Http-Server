@@ -125,7 +125,10 @@ public final class ConnectionHandler implements Runnable {
         var mapper = config.jsonMapper();
         Request req =
                 new Request(p.method(), p.path(), p.rawQuery(), p.headers(), p.body(), mapper);
-        Response res = new Response(mapper).secureCookies(config.secureCookies());
+        Response res =
+                new Response(mapper)
+                        .secureCookies(config.secureCookies())
+                        .maxFileBytes(config.maxStaticFileBytes());
         try {
             dispatcher.dispatch(req, res);
             return res;
