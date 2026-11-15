@@ -1,0 +1,83 @@
+# Jolt
+
+Zero-dependency Java 21 HTTP micro-framework. Express-style routing, virtual threads, built-in JSON. Group in.jolt. Modules: jolt-core, jolt-auth (JWT/Basic), jolt-mcp (MCP bridge).
+
+## Start
+    App app = Jolt.create();              // or Jolt.create(JoltConfig.defaults().maxBodyBytes(1<<20))
+    app.get("/hello", (req, res) -> res.text("hi"));
+    Server s = app.listen(8080);          // listen(0) = free port; s.port(); s.close() drains
+Handlers are (Request, Response) and may throw. Register everything before listen().
+
+## Routes
+    app.get|post|put|delete|patch|head|options(path, handler)   // chainable
+    app.get("/todos/:id", (req, res) -> res.text(req.param("id")));
+    app.get("/files/*", ...)              // req.param("*") = rest of path
+Static beats :param beats *. Wrong method on a known path gives 405 + Allow. HEAD falls back to GET.
+
+## Request
+    req.method() req.path() req.header("X") (case-insensitive) req.headers()
+    req.query("page")  req.query() (Map)  req.cookie("sid")
+    req.text()  req.body() (byte[])
+    req.body(Todo.class)                  // JSON into a record; 400 on bad input
+    req.attr("user")  req.attr("user", v) // per-request values set by middleware
+
+## Response (fluent)
+    res.status(201).json(obj)             // records, Map, List, String, numbers, enums
+    res.text("x") res.html("x") res.send(bytes) res.sendFile(Path.of("a.png"))
+    res.header("X-A","1")  res.cookie("sid","v")  // cookie default: Path=/; HttpOnly; SameSite=Lax
+
+## Errors
+    throw new HttpException(404, "Todo 7 not found");   // plain-text body, that status
+Unhandled exceptions give a 500 with no details. Unknown route: `No route GET /usrs, did you mean GET /users?`. Bad JSON: `Body is not valid JSON at char 14`.
+
+## Middleware
+    app.use((req, res, next) -> { /* before */ next.run(); /* after */ });   // all requests
+    app.use("/api", authMw);              // prefix-scoped, runs in registration order
+Respond without next.run() to stop the chain.
+
+## Routers
+    Router api = new Router();
+    api.get("/users", (req, res) -> res.json(users));
+    app.use("/api", api);                 // GET /api/users; longest prefix wins
+
+## Auth (jolt-auth)
+    JwtAuth jwt = JwtAuth.hs256(System.getenv("JWT_SECRET"));   // no default secret
+    String token = jwt.sign("alice", Map.of("role","admin"), Duration.ofHours(1));
+    app.use("/api", jwt.middleware());    // sets req.attr("user"), req.attr("claims"); else 401
+    app.use("/admin", BasicAuth.require((u, p) -> check(u, p)));
+
+## Config (immutable, fluent copies)
+    JoltConfig.defaults().maxConnections(1000).maxHeaderBytes(16384).maxBodyBytes(1<<20)
+        .maxRequestsPerConnection(100).readTimeout(Duration.ofSeconds(10))
+        .keepAliveTimeout(Duration.ofSeconds(5)).jsonMapper(myMapper)
+        .bindAddress("0.0.0.0")      // default 127.0.0.1 (loopback only); 0.0.0.0 must be explicit
+Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper interface.
+
+## Introspection
+    app.routes()                          // List<Route(method, path, tool)>
+    app.exposeRoutes();                   // opt-in GET /_jolt/routes and /_jolt/openapi.json
+    String spec = app.openApi();          // minimal OpenAPI 3.1 JSON
+
+## MCP (jolt-mcp): let agents call routes
+    app.get("/todos/:id", handler).tool("Fetch a todo by id");   // only tagged routes are exposed
+    Mcp.expose(app, "/mcp", McpOptions.defaults()
+        .allowOrigins("http://localhost:3000")   // Origin allowlist, else 403
+        .auth(jwt.middleware()));                // optional guard on /mcp
+Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path params by name, "query" object, "body" object. Calls run through normal middleware; Authorization and Cookie headers are forwarded. Tool name = method_path, e.g. get_todos_id.
+
+## Complete example
+    record Todo(String title) {}
+    Map<Integer, Todo> db = new ConcurrentHashMap<>();
+    App app = Jolt.create();
+    app.use("/todos", JwtAuth.hs256(secret).middleware());
+    app.post("/todos", (req, res) -> {
+        Todo t = req.body(Todo.class);
+        db.put(db.size() + 1, t);
+        res.status(201).json(t);
+    });
+    app.get("/todos/:id", (req, res) -> {
+        Todo t = db.get(Integer.parseInt(req.param("id")));
+        if (t == null) throw new HttpException(404, "Not found");
+        res.json(t);
+    }).tool("Fetch a todo by id");
+    app.listen(8080);

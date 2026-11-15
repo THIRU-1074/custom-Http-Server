@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.Codec;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
@@ -21,6 +22,8 @@ public final class Request implements Params {
     private Map<String, String> params = Map.of();
     private Map<String, String> query;
     private Map<String, String> cookies;
+    private Map<String, String> form;
+    private final String remoteAddress;
 
     public Request(
             String method,
@@ -29,6 +32,19 @@ public final class Request implements Params {
             Map<String, String> headers,
             byte[] body,
             JsonMapper mapper) {
+        this(method, path, rawQuery, headers, body, mapper, null);
+    }
+
+    /** As above, with the peer address the server saw; it cannot change afterwards. */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress) {
+        this.remoteAddress = remoteAddress;
         this.method = method;
         this.path = path;
         this.rawQuery = rawQuery == null ? "" : rawQuery;
@@ -68,15 +84,55 @@ public final class Request implements Params {
 
     public Map<String, String> query() {
         if (query == null) {
-            query = parsePairs(rawQuery, "&", true);
+            query = parsePairs(rawQuery, "&", true, false);
         }
         return Collections.unmodifiableMap(query);
+    }
+
+    /**
+     * Fields of an {@code application/x-www-form-urlencoded} body (first value wins), or an empty
+     * map for any other media type. Honours a {@code charset} parameter, default UTF-8. The body is
+     * already capped by {@code maxBodyBytes}.
+     *
+     * @throws HttpException 400 on a malformed percent-escape, 415 on an unsupported charset
+     */
+    public Map<String, String> form() {
+        String type = headers.getOrDefault("Content-Type", "");
+        int semi = type.indexOf(';');
+        String media = (semi < 0 ? type : type.substring(0, semi)).strip();
+        if (!media.equalsIgnoreCase("application/x-www-form-urlencoded")) {
+            return Map.of();
+        }
+        if (form == null) {
+            Charset cs = charset(semi < 0 ? "" : type.substring(semi + 1));
+            form = parsePairs(new String(body, cs), "&", true, true, cs);
+        }
+        return Collections.unmodifiableMap(form);
+    }
+
+    private static Charset charset(String params) {
+        for (String param : params.split(";")) {
+            int eq = param.indexOf('=');
+            if (eq > 0 && param.substring(0, eq).strip().equalsIgnoreCase("charset")) {
+                String name = param.substring(eq + 1).strip();
+                if (name.length() >= 2 && name.startsWith("\"") && name.endsWith("\"")) {
+                    name = name.substring(1, name.length() - 1);
+                }
+                try {
+                    return Charset.forName(name);
+                } catch (IllegalArgumentException e) {
+                    throw new HttpException(
+                            HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported charset");
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
     }
 
     /** Value of a cookie from the {@code Cookie} header, or {@code null}. */
     public String cookie(String name) {
         if (cookies == null) {
-            cookies = parsePairs(headers.getOrDefault("Cookie", ""), ";", false);
+            cookies = parsePairs(headers.getOrDefault("Cookie", ""), ";", false, false);
         }
         return cookies.get(name);
     }
@@ -113,6 +169,11 @@ public final class Request implements Params {
         }
     }
 
+    /** IP address of the connected peer, or {@code null} when unknown. */
+    public String remoteAddress() {
+        return remoteAddress;
+    }
+
     /** Per-request value set by middleware, or {@code null}. */
     public Object attr(String name) {
         return attributes.get(name);
@@ -127,7 +188,13 @@ public final class Request implements Params {
         this.params = params;
     }
 
-    private static Map<String, String> parsePairs(String s, String sep, boolean plusAsSpace) {
+    private static Map<String, String> parsePairs(
+            String s, String sep, boolean plusAsSpace, boolean strict) {
+        return parsePairs(s, sep, plusAsSpace, strict, StandardCharsets.UTF_8);
+    }
+
+    private static Map<String, String> parsePairs(
+            String s, String sep, boolean plusAsSpace, boolean strict, Charset cs) {
         Map<String, String> out = new LinkedHashMap<>();
         if (s.isEmpty()) {
             return out;
@@ -141,10 +208,12 @@ public final class Request implements Params {
             String k = eq < 0 ? pair : pair.substring(0, eq);
             String v = eq < 0 ? "" : pair.substring(eq + 1);
             try {
-                k = Codec.percentDecode(k, plusAsSpace);
-                v = Codec.percentDecode(v, plusAsSpace);
-            } catch (IllegalArgumentException ignored) {
-                // keep the raw token when the escape is malformed
+                k = Codec.percentDecode(k, plusAsSpace, cs);
+                v = Codec.percentDecode(v, plusAsSpace, cs);
+            } catch (IllegalArgumentException e) {
+                if (strict) {
+                    throw new HttpException(HttpStatus.BAD_REQUEST, "Malformed form encoding");
+                }
             }
             out.putIfAbsent(k, v);
         }

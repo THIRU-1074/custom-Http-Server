@@ -1,10 +1,10 @@
 #!/bin/sh
-# Lints staged jolt-core Java sources, then runs spotless if a root pom.xml exists.
+# Lints staged Java sources of every module, then runs spotless.
 
 root=$(git rev-parse --show-toplevel) || exit 1
 cd "$root" || exit 1
 
-files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^jolt-core/.*\.java$')
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(jolt-[^/]+|examples/[^/]+)/src/(main|test)/.*\.java$')
 fail=0
 
 if [ -n "$files" ]; then
@@ -38,13 +38,13 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-if [ ! -f pom.xml ]; then
-  echo "pre-commit: no root pom.xml yet, skipping spotless" >&2
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.java$'; then
   exit 0
 fi
+
 if ! command -v mvn >/dev/null 2>&1; then
-  echo "pre-commit: mvn not found, skipping spotless" >&2
-  exit 0
+  echo "pre-commit: mvn not found; install Maven to commit" >&2
+  exit 1
 fi
 
 mvn -q spotless:check || { echo "pre-commit: spotless:check failed (run mvn spotless:apply)" >&2; exit 1; }

@@ -18,6 +18,7 @@ Static beats :param beats *. Wrong method on a known path gives 405 + Allow. HEA
     req.method() req.path() req.header("X") (case-insensitive) req.headers()
     req.query("page")  req.query() (Map)  req.cookie("sid")
     req.text()  req.body() (byte[])
+    req.form().get("name")                // urlencoded body; {} for other types, 400 if malformed
     req.body(Todo.class)                  // JSON into a record; 400 on bad input
     req.attr("user")  req.attr("user", v) // per-request values set by middleware
 
@@ -25,6 +26,7 @@ Static beats :param beats *. Wrong method on a known path gives 405 + Allow. HEA
     res.status(201).json(obj)             // records, Map, List, String, numbers, enums
     res.text("x") res.html("x") res.send(bytes) res.sendFile(Path.of("a.png"))
     res.header("X-A","1")  res.cookie("sid","v")  // cookie default: Path=/; HttpOnly; SameSite=Lax
+    res.redirect("/login")  res.redirect(301, url)   // 301/302/303/307/308; CR/LF rejected
 
 ## Errors
     throw new HttpException(404, "Todo 7 not found");   // plain-text body, that status
@@ -34,6 +36,9 @@ Unhandled exceptions give a 500 with no details. Unknown route: `No route GET /u
     app.use((req, res, next) -> { /* before */ next.run(); /* after */ });   // all requests
     app.use("/api", authMw);              // prefix-scoped, runs in registration order
 Respond without next.run() to stop the chain.
+    app.use(Logger.requests());           // opt-in: "GET /path 200 3ms", no query/headers/bodies
+    app.use(RateLimit.perIp(100, Duration.ofMinutes(1)));   // 429 + Retry-After, LRU-bounded, IPv6 by /64; req.remoteAddress()
+    app.use(RateLimit.perKey(100, Duration.ofMinutes(1), req -> req.header("X-Api-Key")));   // own key, e.g. behind a proxy
 
 ## Routers
     Router api = new Router();
@@ -61,6 +66,8 @@ Closest class or interface wins (ties: first registered); HttpException keeps it
         .maxRequestsPerConnection(100).readTimeout(Duration.ofSeconds(10))
         .keepAliveTimeout(Duration.ofSeconds(5)).jsonMapper(myMapper)
         .bindAddress("0.0.0.0")      // default 127.0.0.1 (loopback only); 0.0.0.0 must be explicit
+    JoltConfig.fromEnv()         // JOLT_BIND_ADDRESS, JOLT_MAX_BODY_BYTES, JOLT_MAX_CONNECTIONS; bad value throws
+    app.listen(8080).closeOnShutdown();   // JVM shutdown hook calls close()
 Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper interface.
 
 ## Introspection

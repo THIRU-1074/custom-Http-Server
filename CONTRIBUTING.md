@@ -2,6 +2,8 @@
 
 Read [CONSTITUTION.md](CONSTITUTION.md) first.
 
+Design contract: [docs/PRINCIPLES.md](docs/PRINCIPLES.md). Size and speed guards: [benchmarks/guard/README.md](benchmarks/guard/README.md).
+
 ## Setup
 
 Requires JDK 21 and Maven. Activate the repo hooks once per clone:
@@ -10,7 +12,7 @@ Requires JDK 21 and Maven. Activate the repo hooks once per clone:
 git config core.hooksPath .githooks
 ```
 
-The hooks check the commit message, lint staged `jolt-core` sources, block direct pushes to `main`, and run `mvn verify` before a push.
+The hooks check the commit message, lint staged Java sources in every module (`jolt-*` and `examples/*`), run `spotless:check` when Java is staged, block direct pushes to `main`, and run `mvn verify` before a push. Maven must be on the `PATH`; the hooks fail without it.
 
 ## Branches
 
@@ -43,7 +45,5 @@ Before opening a PR:
 2. Review `git log --oneline` and `git diff main...HEAD` yourself.
 3. Push the branch and open a PR. CI must pass.
 4. Merge after review. Branch protection on `main` should require CI and a review.
-
-Until the v1 module layout lands, hooks that depend on `jolt-core/` or a root `pom.xml` skip with a notice, so they enforce nothing on the legacy `jolt-http-server/` code.
 
 AI tools follow [AGENTS.md](AGENTS.md) and do not commit or push unless asked.

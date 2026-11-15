@@ -6,7 +6,7 @@ import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.LongAdder;
 
-/** Closed-loop load generator. Usage: {@code java Load.java [url] [concurrency] [seconds]}. */
+/** Closed-loop load generator. Usage: {@code java Load.java [url] [concurrency] [seconds] ["Header: value"]}. */
 public class Load {
 
     public static void main(String[] args) throws Exception {
@@ -19,7 +19,12 @@ public class Load {
                         .version(HttpClient.Version.HTTP_1_1)
                         .connectTimeout(Duration.ofSeconds(5))
                         .build();
-        var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).build();
+        var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30));
+        if (args.length > 3) { // optional header, e.g. "Authorization: Bearer secret"
+            int colon = args[3].indexOf(':');
+            builder.header(args[3].substring(0, colon).trim(), args[3].substring(colon + 1).trim());
+        }
+        var request = builder.build();
         var ok = new LongAdder();
         var failed = new LongAdder();
         var nanos = new LongAdder();

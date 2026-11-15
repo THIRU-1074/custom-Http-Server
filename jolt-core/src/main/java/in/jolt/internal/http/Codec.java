@@ -1,6 +1,7 @@
 package in.jolt.internal.http;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /** Percent-decoding for paths and query strings. */
@@ -14,6 +15,11 @@ public final class Codec {
      * @throws IllegalArgumentException on a malformed escape
      */
     public static String percentDecode(String s, boolean plusAsSpace) {
+        return percentDecode(s, plusAsSpace, StandardCharsets.UTF_8);
+    }
+
+    /** As {@link #percentDecode(String, boolean)} but reads the escaped bytes as {@code cs}. */
+    public static String percentDecode(String s, boolean plusAsSpace, Charset cs) {
         if (s.indexOf('%') < 0 && (!plusAsSpace || s.indexOf('+') < 0)) {
             return s;
         }
@@ -34,14 +40,14 @@ public final class Codec {
             } else if (c == '+' && plusAsSpace) {
                 out.write(' ');
             } else {
-                byte[] bytes = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
+                byte[] bytes = String.valueOf(c).getBytes(cs);
                 if (Character.isHighSurrogate(c) && i + 1 < s.length()) {
-                    bytes = s.substring(i, i + 2).getBytes(StandardCharsets.UTF_8);
+                    bytes = s.substring(i, i + 2).getBytes(cs);
                     i++;
                 }
                 out.writeBytes(bytes);
             }
         }
-        return out.toString(StandardCharsets.UTF_8);
+        return out.toString(cs);
     }
 }

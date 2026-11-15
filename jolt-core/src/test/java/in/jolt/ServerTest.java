@@ -539,6 +539,43 @@ class ServerTest {
     }
 
     @Test
+    void concurrentClosesBothWaitForTheDrainAndAreIdempotent() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean handlerDone =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        App app = Jolt.create();
+        app.get(
+                "/slow",
+                (req, res) -> {
+                    Thread.sleep(500);
+                    handlerDone.set(true);
+                    res.text("done");
+                });
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            c.send("GET /slow HTTP/1.1\r\n\r\n");
+            sleep(100);
+            var results = new java.util.concurrent.ConcurrentLinkedQueue<Boolean>();
+            Runnable closer =
+                    () -> {
+                        server.close();
+                        results.add(handlerDone.get());
+                    };
+            Thread a = new Thread(closer);
+            Thread b = new Thread(closer);
+            a.start();
+            b.start();
+            a.join(8000);
+            b.join(8000);
+            assertEquals(2, results.size());
+            assertFalse(results.contains(false));
+            assertEquals("done", c.read().text());
+            long t = System.nanoTime();
+            server.close();
+            assertTrue(Duration.ofNanos(System.nanoTime() - t).toMillis() < 500);
+        }
+    }
+
+    @Test
     void listenOnABusyPortFails() {
         server = Jolt.create().listen(0);
         assertThrows(java.io.UncheckedIOException.class, () -> Jolt.create().listen(server.port()));

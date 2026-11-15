@@ -1,0 +1,9 @@
+{
+  "tokenizer": "tiktoken cl100k_base",
+  "llms_txt": 1196,
+  "jolt_app_total": 697,
+  "jolt_app_files": {
+    "src/main/java/todo/TodoApp.java": 510,
+    "pom.xml": 187
+  }
+}

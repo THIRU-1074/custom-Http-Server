@@ -114,6 +114,26 @@ public final class Response {
         return send(s.getBytes(StandardCharsets.UTF_8), "text/html; charset=utf-8");
     }
 
+    /** Redirects with 302 Found. */
+    public Response redirect(String url) {
+        return redirect(302, url);
+    }
+
+    /**
+     * Redirects with an empty body.
+     *
+     * @throws IllegalArgumentException if the status is not 301, 302, 303, 307 or 308, or the URL
+     *     contains a line break
+     */
+    public Response redirect(int status, String url) {
+        if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
+            throw new IllegalArgumentException("Not a redirect status: " + status);
+        }
+        header("Location", url);
+        this.status = status;
+        return send(new byte[0], "text/plain; charset=utf-8");
+    }
+
     /** Sends raw bytes; the content type defaults to {@code application/octet-stream}. */
     public Response send(byte[] bytes) {
         return send(bytes, "application/octet-stream");

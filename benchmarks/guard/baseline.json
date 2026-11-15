@@ -1,0 +1,30 @@
+{
+  "median_req_per_s": 17923.7,
+  "median_mean_latency_ms": 2.8,
+  "runs": [
+    {
+      "req_per_s": 18191.7,
+      "mean_latency_ms": 2.7,
+      "failed": 0
+    },
+    {
+      "req_per_s": 17650.4,
+      "mean_latency_ms": 2.8,
+      "failed": 0
+    },
+    {
+      "req_per_s": 17923.7,
+      "mean_latency_ms": 2.8,
+      "failed": 0
+    }
+  ],
+  "profile": "GET /todos (authenticated), 50 clients, 20 s x 3 runs, 8 s warmup",
+  "machine": {
+    "id": "Windows|AMD Ryzen 5 5625U with Radeon Graphics|12threads",
+    "cpu": "AMD Ryzen 5 5625U with Radeon Graphics",
+    "logical_cpus": 12,
+    "os": "Windows 11",
+    "jdk": "openjdk version \"24.0.1\" 2025-04-15"
+  },
+  "recorded": "2026-11-16"
+}

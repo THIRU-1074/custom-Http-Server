@@ -16,8 +16,7 @@ public final class Main {
             throw new IllegalStateException("Set WEBHOOK_USER and WEBHOOK_PASSWORD");
         }
         DBConnection.init();
-        String bind = System.getenv("BIND_ADDRESS");
-        var config = bind == null ? JoltConfig.defaults() : JoltConfig.defaults().bindAddress(bind);
+        var config = JoltConfig.fromEnv();
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 5008;
         var server =
                 NotificationServer.create((u, p) -> u.equals(user) && p.equals(password), config)

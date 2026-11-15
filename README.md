@@ -81,13 +81,13 @@ flowchart LR
 
 ## Numbers
 
-Postman load test, 50 virtual users for 1 minute ([report](jolt-http-server/REST-API-basics--CRUD,-test-&-variable-performance-report-8.html)):
+Postman load test, 50 virtual users for 1 minute ([report](docs/baseline/v0.1-postman-report.html)):
 
 | Requests | Throughput | Avg response | Errors |
 |---|---|---|---|
 | 1,860 | 27.45 req/s | 295 ms | 0.00 % |
 
-![Jolt load test metrics](jolt-http-server/Jolt-Metrics.png)
+![Jolt load test metrics](docs/baseline/Jolt-Metrics.png)
 
 ## What I learned
 
@@ -122,7 +122,7 @@ mvn -B install -DskipTests
 mvn -pl examples/attendance exec:java
 ```
 
-The attendance demo listens on port 5007 on loopback only. Set `BIND_ADDRESS=0.0.0.0` to expose it, and `JWT_SECRET` (at least 32 bytes) to keep tokens valid across restarts. Demo credentials from the old committed database are public, so never reuse them.
+The attendance demo listens on port 5007 on loopback only. Set `JOLT_BIND_ADDRESS=0.0.0.0` to expose it, and `JWT_SECRET` (at least 32 bytes) to keep tokens valid across restarts. Set `ADMIN_USER` and `ADMIN_PASSWORD` (12+ chars) on first start to seed the login user; see [docs/examples.md](docs/examples.md).
 
 ## Resources
 
