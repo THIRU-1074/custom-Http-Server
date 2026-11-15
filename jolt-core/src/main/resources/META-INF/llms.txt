@@ -72,6 +72,7 @@ Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper
 
 ## Protocol and body
 Expect: 100-continue is answered before the body is read; declared length over maxBodyBytes gives 413 unread, other Expect values 417.
+JSON binds Instant, LocalDate, LocalDateTime, UUID, BigDecimal, enums (by name) and Optional (empty omitted); bad values give 400.
 
 ## Introspection
     app.routes()                          // List<Route(method, path, tool)>

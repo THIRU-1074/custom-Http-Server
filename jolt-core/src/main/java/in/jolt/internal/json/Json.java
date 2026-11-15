@@ -9,12 +9,17 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -26,6 +31,8 @@ public final class Json {
     private static final Pattern NUMBER =
             Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int MAX_DEPTH = 64;
+    private static final int MAX_DOUBLE_DIGITS = 15;
+    private static final int UUID_LENGTH = 36;
     private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
 
     private final String src;
@@ -220,11 +227,23 @@ public final class Json {
                 BigInteger big = new BigInteger(s);
                 return big.bitLength() < 64 ? (Object) big.longValue() : big;
             }
-            return Double.parseDouble(s);
+            return mantissaDigits(s) > MAX_DOUBLE_DIGITS
+                    ? new BigDecimal(s)
+                    : Double.parseDouble(s);
         } catch (NumberFormatException e) {
             pos = start;
             throw error();
         }
+    }
+
+    private static int mantissaDigits(String s) {
+        int digits = 0;
+        for (int i = 0; i < s.length() && s.charAt(i) != 'e' && s.charAt(i) != 'E'; i++) {
+            if (s.charAt(i) >= '0' && s.charAt(i) <= '9') {
+                digits++;
+            }
+        }
+        return digits;
     }
 
     private static void write(Object v, StringBuilder sb, int depth) {
@@ -236,6 +255,11 @@ public final class Json {
             case CharSequence s -> quote(s, sb);
             case Character c -> quote(c.toString(), sb);
             case Enum<?> e -> quote(e.name(), sb);
+            case Instant t -> quote(t.toString(), sb);
+            case LocalDate t -> quote(t.toString(), sb);
+            case LocalDateTime t -> quote(t.toString(), sb);
+            case UUID t -> quote(t.toString(), sb);
+            case Optional<?> o -> write(o.orElse(null), sb, depth);
             case Double d when d.isNaN() || d.isInfinite() -> sb.append("null");
             case Float f when f.isNaN() || f.isInfinite() -> sb.append("null");
             case Number n -> sb.append(n);
@@ -286,20 +310,26 @@ public final class Json {
 
     private static void writeRecord(Record r, StringBuilder sb, int depth) {
         sb.append('{');
-        RecordComponent[] comps = r.getClass().getRecordComponents();
-        for (int i = 0; i < comps.length; i++) {
-            if (i > 0) {
+        boolean first = true;
+        for (RecordComponent comp : r.getClass().getRecordComponents()) {
+            Object value;
+            try {
+                var accessor = comp.getAccessor();
+                accessor.setAccessible(true);
+                value = accessor.invoke(r);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalArgumentException("Cannot read " + comp.getName(), e);
+            }
+            if (value instanceof Optional<?> o && o.isEmpty()) {
+                continue;
+            }
+            if (!first) {
                 sb.append(',');
             }
-            quote(comps[i].getName(), sb);
+            first = false;
+            quote(comp.getName(), sb);
             sb.append(':');
-            try {
-                var accessor = comps[i].getAccessor();
-                accessor.setAccessible(true);
-                write(accessor.invoke(r), sb, depth + 1);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalArgumentException("Cannot read " + comps[i].getName(), e);
-            }
+            write(value, sb, depth + 1);
         }
         sb.append('}');
     }
@@ -334,6 +364,13 @@ public final class Json {
             return convert(v, tv.getBounds()[0], where);
         }
         Class<?> raw = rawClass(type);
+        if (raw == Optional.class) {
+            Type element =
+                    type instanceof ParameterizedType pt
+                            ? pt.getActualTypeArguments()[0]
+                            : Object.class;
+            return Optional.ofNullable(convert(v, element, where));
+        }
         if (v == null) {
             return raw.isPrimitive() ? Array.get(Array.newInstance(raw, 1), 0) : null;
         }
@@ -354,6 +391,12 @@ public final class Json {
         }
         if (Number.class.isAssignableFrom(wrap(raw))) {
             return number(v, wrap(raw), where);
+        }
+        if (raw == Instant.class
+                || raw == LocalDate.class
+                || raw == LocalDateTime.class
+                || raw == UUID.class) {
+            return text(raw, v, where);
         }
         if (raw.isEnum()) {
             try {
@@ -402,6 +445,26 @@ public final class Json {
             return v;
         }
         throw mismatch(where, raw.getSimpleName());
+    }
+
+    private static Object text(Class<?> raw, Object v, String where) {
+        if (!(v instanceof String s)) {
+            throw mismatch(where, "a string");
+        }
+        try {
+            if (raw == Instant.class) {
+                return Instant.parse(s);
+            } else if (raw == LocalDate.class) {
+                return LocalDate.parse(s);
+            } else if (raw == LocalDateTime.class) {
+                return LocalDateTime.parse(s);
+            } else if (s.length() == UUID_LENGTH) {
+                return UUID.fromString(s);
+            }
+        } catch (RuntimeException e) {
+            // reported below
+        }
+        throw mismatch(where, "a valid " + raw.getSimpleName());
     }
 
     private static Collection<Object> newCollection(Class<?> raw) {
