@@ -59,7 +59,10 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         return this;
     }
 
-    /** Starts serving on {@code port} (0 picks a free port) and returns immediately. */
+    /**
+     * Starts serving on {@code port} (0 picks a free port) on {@link JoltConfig#bindAddress} and
+     * returns immediately.
+     */
     public Server listen(int port) {
         try {
             return new Server(config, port, this);

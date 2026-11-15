@@ -17,7 +17,8 @@ public record JoltConfig(
         int maxRequestLineBytes,
         int maxHeaderCount,
         boolean secureCookies,
-        long maxStaticFileBytes) {
+        long maxStaticFileBytes,
+        String bindAddress) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -31,7 +32,8 @@ public record JoltConfig(
                 8 * 1024,
                 100,
                 false,
-                10L * 1024 * 1024);
+                10L * 1024 * 1024,
+                "127.0.0.1");
     }
 
     public JoltConfig maxConnections(int v) {
@@ -46,7 +48,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -61,7 +64,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -76,7 +80,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -91,7 +96,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -106,7 +112,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -121,7 +128,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -136,7 +144,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -151,7 +160,8 @@ public record JoltConfig(
                 v,
                 maxHeaderCount,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -166,7 +176,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 v,
                 secureCookies,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -181,7 +192,8 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 v,
-                maxStaticFileBytes);
+                maxStaticFileBytes,
+                bindAddress);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -196,6 +208,27 @@ public record JoltConfig(
                 maxRequestLineBytes,
                 maxHeaderCount,
                 secureCookies,
+                v,
+                bindAddress);
+    }
+
+    /**
+     * Local address the server binds to. Defaults to loopback; pass {@code "0.0.0.0"} to accept
+     * connections from other hosts.
+     */
+    public JoltConfig bindAddress(String v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
                 v);
     }
 }

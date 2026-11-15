@@ -1,5 +1,6 @@
 package in.jolt.examples.attendance;
 
+import in.jolt.JoltConfig;
 import in.jolt.auth.JwtAuth;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -24,8 +25,10 @@ public final class Main {
             return;
         }
         DBConnection.init();
+        String bind = System.getenv("BIND_ADDRESS");
+        var config = bind == null ? JoltConfig.defaults() : JoltConfig.defaults().bindAddress(bind);
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 5007;
-        var server = AttendanceApp.create(JwtAuth.hs256(secret)).listen(port);
+        var server = AttendanceApp.create(JwtAuth.hs256(secret), config).listen(port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
         LOG.log(System.Logger.Level.INFO, "Attendance listening on port " + server.port());
     }
