@@ -12,8 +12,13 @@ import in.jolt.Request;
 import in.jolt.Response;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -81,6 +86,47 @@ class AuthTest {
             assertEquals(401, res.statusCode());
             assertTrue(res.headers().stream().anyMatch(h -> h.getKey().equals("WWW-Authenticate")));
         }
+    }
+
+    @Test
+    void jwtSignsTemporalAndCollectionClaims() throws Exception {
+        JwtAuth auth = JwtAuth.hs256(SECRET);
+        Instant at = Instant.ofEpochSecond(1_700_000_000L);
+        String token =
+                auth.sign(
+                        "u",
+                        Map.of(
+                                "at", at,
+                                "date", Date.from(at),
+                                "roles", List.of("a", "b"),
+                                "ids", Set.of(7L)),
+                        Duration.ofMinutes(5));
+        Request r = req("Bearer " + token);
+        assertTrue(run(auth.middleware(), r, res()));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> claims = (Map<String, Object>) r.attr("claims");
+        assertEquals(1_700_000_000L, claims.get("at"));
+        assertEquals(1_700_000_000L, claims.get("date"));
+        assertEquals(List.of("a", "b"), claims.get("roles"));
+        assertEquals(List.of(7), claims.get("ids"));
+    }
+
+    @Test
+    void jwtRejectsNullAndUnsupportedClaimValues() {
+        JwtAuth auth = JwtAuth.hs256(SECRET);
+        Map<String, Object> withNull = new HashMap<>();
+        withNull.put("role", null);
+        var e =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> auth.sign("u", withNull, Duration.ofMinutes(1)));
+        assertTrue(e.getMessage().contains("role"), e.getMessage());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> auth.sign("u", Map.of("o", new Object()), Duration.ofMinutes(1)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> auth.sign("u", Map.of("m", Map.of("k", "v")), Duration.ofMinutes(1)));
     }
 
     @Test

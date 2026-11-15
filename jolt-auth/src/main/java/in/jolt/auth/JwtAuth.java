@@ -9,8 +9,10 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import in.jolt.Middleware;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -36,7 +38,11 @@ public final class JwtAuth {
         return new JwtAuth(secret);
     }
 
-    /** Signs a token for {@code subject} that expires after {@code ttl}. */
+    /**
+     * Signs a token for {@code subject} that expires after {@code ttl}. Claim values may be String,
+     * Boolean, Integer, Long, Double, Instant, Date or a Collection of those; null or any other
+     * type throws IllegalArgumentException.
+     */
     public String sign(String subject, Map<String, ?> claims, Duration ttl) {
         Instant now = Instant.now();
         var builder =
@@ -47,11 +53,22 @@ public final class JwtAuth {
         claims.forEach(
                 (k, v) -> {
                     switch (v) {
+                        case null ->
+                                throw new IllegalArgumentException("Claim '" + k + "' is null");
+                        case String s -> builder.withClaim(k, s);
                         case Boolean b -> builder.withClaim(k, b);
                         case Integer i -> builder.withClaim(k, i);
                         case Long l -> builder.withClaim(k, l);
                         case Double d -> builder.withClaim(k, d);
-                        default -> builder.withClaim(k, String.valueOf(v));
+                        case Instant t -> builder.withClaim(k, t);
+                        case Date d -> builder.withClaim(k, d);
+                        case Collection<?> c -> builder.withClaim(k, List.copyOf(c));
+                        default ->
+                                throw new IllegalArgumentException(
+                                        "Claim '"
+                                                + k
+                                                + "' has unsupported type "
+                                                + v.getClass().getName());
                     }
                 });
         return builder.sign(algorithm);
@@ -93,6 +110,9 @@ public final class JwtAuth {
             }
             if (v == null) {
                 v = c.asBoolean();
+            }
+            if (v == null) {
+                v = c.asList(Object.class);
             }
             if (v != null) {
                 out.put(e.getKey(), v);
