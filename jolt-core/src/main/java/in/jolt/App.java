@@ -6,11 +6,14 @@ import in.jolt.internal.routing.Suggest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
 
     private final JoltConfig config;
+    private final Map<Class<?>, ErrorMapper<?>> mappers = new HashMap<>();
 
     App(JoltConfig config) {
         this.config = config;
@@ -41,6 +44,28 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
                                     + req.path()
                                     + (hint == null ? "" : ", did you mean " + hint + "?"));
                 });
+    }
+
+    /**
+     * Maps exceptions of {@code type} to a reply. The most specific registered class in the
+     * exception's hierarchy wins, whatever the registration order. Unmapped exceptions keep the
+     * default handling.
+     */
+    public <E extends Throwable> App onError(Class<E> type, ErrorMapper<E> mapper) {
+        mappers.put(type, mapper);
+        return this;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Reply<?> mapError(Throwable t) {
+        for (Class<?> c = t.getClass(); c != null; c = c.getSuperclass()) {
+            ErrorMapper<Throwable> m = (ErrorMapper<Throwable>) mappers.get(c);
+            if (m != null) {
+                return m.map(t);
+            }
+        }
+        return null;
     }
 
     /** Minimal OpenAPI 3.1 JSON describing the registered routes. */

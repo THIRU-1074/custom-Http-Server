@@ -3,6 +3,7 @@ package in.jolt.internal.http;
 import in.jolt.HttpException;
 import in.jolt.HttpStatus;
 import in.jolt.JoltConfig;
+import in.jolt.Reply;
 import in.jolt.Request;
 import in.jolt.Response;
 import java.io.BufferedInputStream;
@@ -20,6 +21,11 @@ public final class ConnectionHandler implements Runnable {
     @FunctionalInterface
     public interface Dispatcher {
         void dispatch(Request req, Response res) throws Exception;
+
+        /** The reply a registered mapper gives for {@code t}, or {@code null} if none applies. */
+        default Reply<?> mapError(Throwable t) {
+            return null;
+        }
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -136,15 +142,34 @@ public final class ConnectionHandler implements Runnable {
         try {
             dispatcher.dispatch(req, res);
             return res;
-        } catch (HttpException e) {
-            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
         } catch (Throwable t) {
+            Response mapped = mapped(dispatcher, res, t);
+            if (mapped != null) {
+                return mapped;
+            }
+            if (t instanceof HttpException e) {
+                return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
+            }
             LOG.log(
                     System.Logger.Level.ERROR,
                     "Unhandled exception on " + req.method() + " " + req.path(),
                     t);
             return errorResponse(
                     res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
+        }
+    }
+
+    private static Response mapped(Dispatcher dispatcher, Response original, Throwable t) {
+        try {
+            Reply<?> reply = dispatcher.mapError(t);
+            if (reply == null) {
+                return null;
+            }
+            Response err = original.copyHeadersExcept(DROPPED_ON_ERROR).status(reply.status());
+            return reply.body() == null ? err : err.json(reply.body());
+        } catch (RuntimeException e) {
+            LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
+            return null;
         }
     }
 
