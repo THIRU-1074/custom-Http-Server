@@ -64,6 +64,7 @@ Closest class or interface wins (ties: first registered); HttpException keeps it
 ## Hardening, roles, tests
     app.use(SecurityHeaders.defaults().hsts(Duration.ofDays(365)).csp("default-src 'self'"));   // nosniff, DENY, no-referrer, COOP/CORP; HSTS only if .https(req -> ...) says so
     String h = PasswordHasher.hash(pw);  PasswordHasher.verify(pw, h)   // PBKDF2, 210000 iters; needsRehash(h)
+    app.use("/admin", Auth.requireRole("admin"));   // after jwt.middleware(); claim role|roles; 401 no user, 403 wrong role; requireAll(...)
 
 ## Config (immutable, fluent copies)
     JoltConfig.defaults().maxConnections(1000).maxHeaderBytes(16384).maxBodyBytes(1<<20)
