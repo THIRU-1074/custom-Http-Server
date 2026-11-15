@@ -91,6 +91,19 @@ public class Router {
         return this;
     }
 
+    /** Registers {@code module}'s routes on this router. */
+    public Router module(RouteModule module) {
+        module.register(this);
+        return this;
+    }
+
+    /** Registers {@code module}'s routes on a new router mounted under {@code prefix}. */
+    public Router module(String prefix, RouteModule module) {
+        Router sub = new Router();
+        module.register(sub);
+        return use(prefix, sub);
+    }
+
     private Router route(String method, String path, Handler h) {
         routes.computeIfAbsent(method, k -> new RouteTrie<>()).insert(path, h);
         defs.add(new Route(method, path.startsWith("/") ? path : "/" + path, null));
