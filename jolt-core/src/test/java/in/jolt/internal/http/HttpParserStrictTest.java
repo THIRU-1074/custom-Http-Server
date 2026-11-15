@@ -77,4 +77,21 @@ class HttpParserStrictTest {
                         LIMITS);
         assertEquals(10, r.body().length);
     }
+
+    @Test
+    void trailerCountIsBounded() throws IOException {
+        String head = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n";
+        assertEquals(0, parse(head + "T: 1\r\n".repeat(5) + "\r\n", LIMITS).body().length);
+        assertEquals(431, statusOf(head + "T: 1\r\n".repeat(6) + "\r\n"));
+    }
+
+    @Test
+    void trailerBytesAreBounded() {
+        Limits small = new Limits(64, 64, 64, 100);
+        String raw =
+                "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n"
+                        + ("T: " + "x".repeat(40) + "\r\n").repeat(3)
+                        + "\r\n";
+        assertEquals(431, assertThrows(HttpException.class, () -> parse(raw, small)).status());
+    }
 }

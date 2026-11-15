@@ -101,7 +101,7 @@ public final class HttpParser {
             headers.merge(name, value, (a, b) -> a + sep + b);
         }
 
-        byte[] body = readBody(in, headers, limits.maxBodyBytes());
+        byte[] body = readBody(in, headers, limits);
         return new ParsedRequest(method, path, rawQuery, version, headers, body);
     }
 
@@ -148,8 +148,9 @@ public final class HttpParser {
         }
     }
 
-    private static byte[] readBody(InputStream in, Map<String, String> headers, int max)
+    private static byte[] readBody(InputStream in, Map<String, String> headers, Limits limits)
             throws IOException {
+        int max = limits.maxBodyBytes();
         String te = headers.get("Transfer-Encoding");
         if (te != null && headers.containsKey("Content-Length")) {
             throw bad("Content-Length with Transfer-Encoding");
@@ -162,7 +163,7 @@ public final class HttpParser {
                 throw new HttpException(
                         HttpStatus.NOT_IMPLEMENTED, "Unsupported Transfer-Encoding");
             }
-            return readChunked(in, max);
+            return readChunked(in, limits);
         }
         String cl = headers.get("Content-Length");
         if (cl == null) {
@@ -198,7 +199,8 @@ public final class HttpParser {
         return body.toByteArray();
     }
 
-    private static byte[] readChunked(InputStream in, int max) throws IOException {
+    private static byte[] readChunked(InputStream in, Limits limits) throws IOException {
+        int max = limits.maxBodyBytes();
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         while (true) {
             String line = readLine(in);
@@ -214,9 +216,7 @@ public final class HttpParser {
                 throw bad("Invalid chunk size");
             }
             if (size == 0) {
-                while (!readLine(in).isEmpty()) {
-                    // trailers are read and ignored
-                }
+                skipTrailers(in, limits);
                 return body.toByteArray();
             }
             if ((long) body.size() + size > max) {
@@ -225,6 +225,18 @@ public final class HttpParser {
             body.writeBytes(readExactly(in, size));
             if (!readLine(in).isEmpty()) {
                 throw bad("Malformed chunk");
+            }
+        }
+    }
+
+    private static void skipTrailers(InputStream in, Limits limits) throws IOException {
+        int count = 0;
+        int bytes = 0;
+        String line;
+        while (!(line = readLine(in)).isEmpty()) {
+            bytes += line.length() + 2;
+            if (++count > limits.maxHeaderCount() || bytes > limits.maxHeaderBytes()) {
+                throw new HttpException(HttpStatus.HEADER_FIELDS_TOO_LARGE, "Trailers too large");
             }
         }
     }
