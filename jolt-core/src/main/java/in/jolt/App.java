@@ -6,14 +6,22 @@ import in.jolt.internal.routing.Suggest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
 
     private final JoltConfig config;
-    private final Map<Class<?>, ErrorMapper<?>> mappers = new HashMap<>();
+
+    private record Entry(long order, ErrorMapper<?> mapper) {}
+
+    private final Map<Class<?>, Entry> mappers = new HashMap<>();
+    private long registrations;
 
     App(JoltConfig config) {
         this.config = config;
@@ -47,13 +55,14 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     }
 
     /**
-     * Maps exceptions of {@code type} to a reply. The most specific registered class in the
-     * exception's hierarchy wins, whatever the registration order. Unmapped exceptions keep the
-     * default handling. An {@link HttpException} is mapped only by a mapper registered for {@code
-     * HttpException} or a subclass, never by a broader type such as {@code RuntimeException}.
+     * Maps exceptions of {@code type} (a class or an interface) to a reply. The registered type
+     * closest to the exception's class, counting superclass and interface steps breadth-first,
+     * wins; ties go to the first registered. Unmapped exceptions keep the default handling. An
+     * {@link HttpException} is mapped only by a mapper registered for {@code HttpException} or a
+     * subclass, never by a broader type such as {@code RuntimeException}.
      */
-    public <E extends Throwable> App onError(Class<E> type, ErrorMapper<E> mapper) {
-        mappers.put(type, mapper);
+    public <E> App onError(Class<E> type, ErrorMapper<E> mapper) {
+        mappers.put(type, new Entry(registrations++, mapper));
         return this;
     }
 
@@ -61,14 +70,31 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     @SuppressWarnings("unchecked")
     public Reply<?> mapError(Throwable t) {
         boolean http = t instanceof HttpException;
-        for (Class<?> c = t.getClass(); c != null; c = c.getSuperclass()) {
-            if (http && !HttpException.class.isAssignableFrom(c)) {
-                break;
+        Set<Class<?>> seen = new HashSet<>();
+        List<Class<?>> level = List.of(t.getClass());
+        while (!level.isEmpty()) {
+            Entry best = null;
+            for (Class<?> c : level) {
+                Entry e = http && !HttpException.class.isAssignableFrom(c) ? null : mappers.get(c);
+                if (e != null && (best == null || e.order < best.order)) {
+                    best = e;
+                }
             }
-            ErrorMapper<Throwable> m = (ErrorMapper<Throwable>) mappers.get(c);
-            if (m != null) {
-                return m.map(t);
+            if (best != null) {
+                return ((ErrorMapper<Object>) best.mapper).map(t);
             }
+            List<Class<?>> next = new ArrayList<>();
+            for (Class<?> c : level) {
+                if (c.getSuperclass() != null && seen.add(c.getSuperclass())) {
+                    next.add(c.getSuperclass());
+                }
+                for (Class<?> i : c.getInterfaces()) {
+                    if (seen.add(i)) {
+                        next.add(i);
+                    }
+                }
+            }
+            level = next;
         }
         return null;
     }
