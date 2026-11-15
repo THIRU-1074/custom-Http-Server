@@ -127,6 +127,30 @@ class RateLimitTest {
     }
 
     @Test
+    void windowThatOverflowsNanosIsAnIllegalArgument() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RateLimit.perIp(1, Duration.ofSeconds(Long.MAX_VALUE)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RateLimit.perKey(1, Duration.ofDays(365L * 300), r -> "k"));
+        assertThrows(
+                IllegalArgumentException.class, () -> RateLimit.perIp(1, Duration.ofSeconds(-5)));
+    }
+
+    @Test
+    void retryAfterComesFromTheOffendingBucketsRemainingTime() {
+        AtomicLong now = new AtomicLong();
+        App app = app(RateLimit.perIp(1, Duration.ofSeconds(100), now::get, 100));
+        from(app, "a").expect(200);
+        now.set(60 * SEC);
+        from(app, "b").expect(200);
+        now.set(70 * SEC);
+        from(app, "a").expect(429).header("Retry-After", "30");
+        from(app, "b").expect(429).header("Retry-After", "90");
+    }
+
+    @Test
     void unknownAddressSharesOneBucket() {
         App app = app(RateLimit.perIp(1, Duration.ofSeconds(60)));
         JoltTest.of(app).get("/").remoteAddress(null).expect(200);

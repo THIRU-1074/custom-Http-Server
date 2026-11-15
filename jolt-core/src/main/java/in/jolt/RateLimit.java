@@ -63,7 +63,12 @@ public final class RateLimit {
         if (maxKeys < 1) {
             throw new IllegalArgumentException("Need maxTrackedAddresses >= 1");
         }
-        long windowNanos = window.toNanos();
+        long windowNanos;
+        try {
+            windowNanos = window.toNanos();
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("window is too large", e);
+        }
         Map<String, long[]> table =
                 new LinkedHashMap<>(16, 0.75f, true) {
                     @Override
