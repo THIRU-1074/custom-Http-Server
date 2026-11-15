@@ -7,6 +7,7 @@ import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import in.jolt.Middleware;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -18,20 +19,24 @@ import java.util.Objects;
 
 /**
  * HS256 JWT signing and a bearer-token middleware. The secret has no default and must be supplied
- * by the caller.
+ * by the caller, at least 32 bytes long. Other algorithms and tokens without {@code exp} are
+ * rejected.
  */
 public final class JwtAuth {
+
+    private static final int MIN_SECRET_BYTES = 32;
 
     private final Algorithm algorithm;
     private final JWTVerifier verifier;
 
     private JwtAuth(String secret) {
         Objects.requireNonNull(secret, "JWT secret must be supplied");
-        if (secret.isBlank()) {
-            throw new IllegalArgumentException("JWT secret must not be blank");
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalArgumentException(
+                    "JWT secret must be at least " + MIN_SECRET_BYTES + " bytes");
         }
         this.algorithm = Algorithm.HMAC256(secret);
-        this.verifier = JWT.require(algorithm).build();
+        this.verifier = JWT.require(algorithm).withClaimPresence("exp").build();
     }
 
     public static JwtAuth hs256(String secret) {

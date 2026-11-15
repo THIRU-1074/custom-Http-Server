@@ -185,7 +185,8 @@ class ServerTest {
     }
 
     @Test
-    void middlewareThatThrowsAfterPartialResponseStillGets500() throws IOException {
+    void middlewareThatThrowsAfterPartialResponseGets500WithItsHeadersButNotItsBody()
+            throws IOException {
         App app = Jolt.create();
         app.use(
                 (req, res, next) -> {
@@ -196,7 +197,8 @@ class ServerTest {
         try (var c = new RawClient(server.port())) {
             Reply r = c.get("/");
             assertEquals(500, r.status());
-            assertEquals(null, r.header("X-Partial"));
+            assertEquals("1", r.header("X-Partial"));
+            assertEquals("Internal Server Error", r.text());
         }
     }
 
@@ -255,6 +257,68 @@ class ServerTest {
     }
 
     @Test
+    void crLfInResponseHeadersAndCookiesIsRejected() throws IOException {
+        App app = Jolt.create();
+        app.get("/go", (req, res) -> res.header("Location", req.query("to")).status(302));
+        app.get("/c", (req, res) -> res.cookie("sid", req.query("v")).text("ok"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.get("/go?to=%0d%0aSet-Cookie:%20evil=1");
+            assertEquals(500, r.status());
+            assertEquals(null, r.header("Set-Cookie"));
+            assertEquals(500, c.get("/c?v=a%0d%0aX:%20y").status());
+            assertEquals(200, c.get("/c?v=abc").status());
+        }
+        Response res = new Response(JoltConfig.defaults().jsonMapper());
+        assertThrows(IllegalArgumentException.class, () -> res.header("X\r\nY", "v"));
+        assertThrows(IllegalArgumentException.class, () -> res.header("X:Y", "v"));
+        assertThrows(IllegalArgumentException.class, () -> res.header("X", "a\nb"));
+        assertThrows(IllegalArgumentException.class, () -> res.cookie("a", "b", "Path=/\r\nX: y"));
+    }
+
+    @Test
+    void cookiesAreSecureWhenConfiguredAndRejectAttributeInjection() throws IOException {
+        App app = Jolt.create(JoltConfig.defaults().secureCookies(true));
+        app.get("/s", (req, res) -> res.cookie("a", "1").text("ok"));
+        app.get("/i", (req, res) -> res.cookie("a", "1; Domain=evil").text("ok"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals(
+                    "a=1; Path=/; HttpOnly; SameSite=Lax; Secure",
+                    c.get("/s").header("Set-Cookie"));
+            assertEquals(500, c.get("/i").status());
+        }
+    }
+
+    @Test
+    void corsIsOffByDefaultAndOptInAllowsOnlyTheNamedOrigin() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.send("GET / HTTP/1.1\r\nOrigin: https://a.io\r\n\r\n").read();
+            assertEquals(null, r.header("Access-Control-Allow-Origin"));
+        }
+        server.close();
+        App app = echoApp(JoltConfig.defaults());
+        app.use(Cors.allow("https://a.io"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply ok = c.send("GET / HTTP/1.1\r\nOrigin: https://a.io\r\n\r\n").read();
+            assertEquals("https://a.io", ok.header("Access-Control-Allow-Origin"));
+            assertEquals("hello", ok.text());
+            Reply other = c.send("GET / HTTP/1.1\r\nOrigin: https://b.io\r\n\r\n").read();
+            assertEquals(null, other.header("Access-Control-Allow-Origin"));
+            Reply pre =
+                    c.send(
+                                    "OPTIONS / HTTP/1.1\r\nOrigin: https://a.io\r\n"
+                                            + "Access-Control-Request-Method: POST\r\n\r\n")
+                            .read();
+            assertEquals(204, pre.status());
+            assertEquals("https://a.io", pre.header("Access-Control-Allow-Origin"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> Cors.allow("*"));
+    }
+
+    @Test
     void responseHelpersSetContentTypes() throws IOException {
         App app = Jolt.create();
         app.get("/html", (req, res) -> res.html("<p>x</p>"));
@@ -295,6 +359,25 @@ class ServerTest {
             Reply r = c.send("GET / HTTP/1.1\r\nX: " + "a".repeat(300) + "\r\n\r\n").read();
             assertEquals(431, r.status());
         }
+    }
+
+    @Test
+    void requestLineOver8KbIs414AndMoreThan100HeadersIs431() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.send("GET /" + "a".repeat(9000) + " HTTP/1.1\r\n\r\n").read();
+            assertEquals(414, r.status());
+            assertTrue(c.isClosedByPeer());
+        }
+        StringBuilder many = new StringBuilder("GET / HTTP/1.1\r\n");
+        for (int i = 0; i < 101; i++) {
+            many.append("X-").append(i).append(": v\r\n");
+        }
+        try (var c = new RawClient(server.port())) {
+            assertEquals(431, c.send(many.append("\r\n").toString()).read().status());
+        }
+        assertEquals(8 * 1024, JoltConfig.defaults().maxRequestLineBytes());
+        assertEquals(100, JoltConfig.defaults().maxHeaderCount());
     }
 
     @Test
@@ -355,6 +438,36 @@ class ServerTest {
                 assertEquals(503, r.status());
                 assertEquals("close", r.header("Connection"));
             }
+        }
+    }
+
+    @Test
+    @Timeout(15)
+    void connectionFloodBeyondTheCapIsAnswered503AndServerRecovers() throws IOException {
+        int cap = 20;
+        server = echoApp(JoltConfig.defaults().maxConnections(cap)).listen(0);
+        List<RawClient> holders = new java.util.ArrayList<>();
+        for (int i = 0; i < cap; i++) {
+            RawClient c = new RawClient(server.port());
+            assertEquals("hello", c.get("/").text());
+            holders.add(c);
+        }
+        int rejected = 0;
+        for (int i = 0; i < 500; i++) {
+            try (var c = new RawClient(server.port())) {
+                if (c.read().status() == 503) {
+                    rejected++;
+                }
+            }
+        }
+        assertEquals(500, rejected);
+        for (RawClient c : holders) {
+            assertEquals("hello", c.get("/").text());
+            c.close();
+        }
+        sleep(100);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("hello", c.get("/").text());
         }
     }
 
@@ -450,7 +563,38 @@ class ServerTest {
             assertEquals("text/html; charset=utf-8", f.header("Content-Type"));
             assertEquals("application/octet-stream", c.get("/b").header("Content-Type"));
             assertEquals(404, c.get("/m").status());
-            assertEquals(500, c.get("/d").status());
+            assertEquals(404, c.get("/d").status());
+        }
+    }
+
+    @Test
+    void staticServeRefusesTraversalAndSymlinkEscapes(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws IOException {
+        java.nio.file.Path root = java.nio.file.Files.createDirectory(dir.resolve("pub"));
+        java.nio.file.Files.writeString(root.resolve("a.txt"), "ok");
+        java.nio.file.Files.writeString(dir.resolve("secret.txt"), "nope");
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                    root.resolve("link.txt"), dir.resolve("secret.txt"));
+        } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            // symlinks unavailable on this platform
+        }
+        App app = Jolt.create();
+        app.use("/s", Static.serve("/s", root));
+        app.get("/dl", (req, res) -> res.sendFile(root, req.query("f")));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("ok", c.get("/s/a.txt").text());
+            assertEquals(404, c.get("/s/none.txt").status());
+            assertEquals(404, c.get("/s/").status());
+            assertEquals(403, c.get("/s/%2e%2e/secret.txt").status());
+            assertEquals(403, c.get("/dl?f=../secret.txt").status());
+            assertEquals(403, c.get("/dl?f=a/../../secret.txt").status());
+            assertEquals(403, c.get("/dl?f=%00").status());
+            assertEquals("ok", c.get("/dl?f=/a.txt").text());
+            if (java.nio.file.Files.isSymbolicLink(root.resolve("link.txt"))) {
+                assertEquals(403, c.get("/s/link.txt").status());
+            }
         }
     }
 
@@ -487,6 +631,9 @@ class ServerTest {
                         .maxHeaderBytes(2)
                         .maxBodyBytes(3)
                         .maxRequestsPerConnection(4)
+                        .maxRequestLineBytes(7)
+                        .maxHeaderCount(8)
+                        .secureCookies(true)
                         .readTimeout(Duration.ofSeconds(5))
                         .keepAliveTimeout(Duration.ofSeconds(6))
                         .jsonMapper(
@@ -503,6 +650,9 @@ class ServerTest {
         assertEquals(2, c.maxHeaderBytes());
         assertEquals(3, c.maxBodyBytes());
         assertEquals(4, c.maxRequestsPerConnection());
+        assertEquals(7, c.maxRequestLineBytes());
+        assertEquals(8, c.maxHeaderCount());
+        assertTrue(c.secureCookies());
         assertEquals(Duration.ofSeconds(5), c.readTimeout());
         assertEquals(Duration.ofSeconds(6), c.keepAliveTimeout());
         assertEquals("X", new String(c.jsonMapper().write(1), StandardCharsets.UTF_8));
