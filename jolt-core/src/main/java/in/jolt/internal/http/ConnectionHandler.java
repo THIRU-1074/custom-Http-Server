@@ -143,40 +143,41 @@ public final class ConnectionHandler implements Runnable {
             dispatcher.dispatch(req, res);
             return res;
         } catch (Throwable t) {
-            Response mapped = mapped(dispatcher, res, t);
-            if (mapped != null) {
-                return mapped;
-            }
-            if (t instanceof HttpException e) {
-                return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
-            }
-            LOG.log(
-                    System.Logger.Level.ERROR,
-                    "Unhandled exception on " + req.method() + " " + req.path(),
-                    t);
-            return errorResponse(
-                    res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
+            return failure(dispatcher, res, req, t);
         }
     }
 
-    private static Response mapped(Dispatcher dispatcher, Response original, Throwable t) {
+    private static Response failure(Dispatcher dispatcher, Response res, Request req, Throwable t) {
         try {
             Reply<?> reply = dispatcher.mapError(t);
-            if (reply == null) {
-                return null;
+            if (reply != null) {
+                if (!(t instanceof HttpException)) {
+                    LOG.log(
+                            System.Logger.Level.WARNING,
+                            "Mapped exception on " + req.method() + " " + req.path(),
+                            t);
+                }
+                Response err = res.copyHeadersExcept(DROPPED_ON_ERROR).status(reply.status());
+                return reply.body() == null ? err : err.json(reply.body());
             }
-            if (!(t instanceof HttpException)) {
-                LOG.log(
-                        System.Logger.Level.WARNING,
-                        "Mapped exception " + t.getClass().getName(),
-                        t);
-            }
-            Response err = original.copyHeadersExcept(DROPPED_ON_ERROR).status(reply.status());
-            return reply.body() == null ? err : err.json(reply.body());
-        } catch (RuntimeException e) {
+        } catch (HttpException e) {
+            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
+        } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
-            return null;
+            return internalError(res);
         }
+        if (t instanceof HttpException e) {
+            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
+        }
+        LOG.log(
+                System.Logger.Level.ERROR,
+                "Unhandled exception on " + req.method() + " " + req.path(),
+                t);
+        return internalError(res);
+    }
+
+    private static Response internalError(Response res) {
+        return errorResponse(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
     }
 
     /** Builds an error reply that keeps the headers middleware set but none of the body framing. */
