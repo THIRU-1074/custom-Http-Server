@@ -2,6 +2,7 @@ package in.jolt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import in.jolt.test.JoltTest;
 import java.time.Duration;
@@ -62,13 +63,35 @@ class RateLimitTest {
     }
 
     @Test
-    void newKeysAreRefusedWhenTheTableIsFullOfLiveEntries() {
+    void whenFullTheLeastRecentlyUsedEntryIsEvictedAndNewKeysAreServed() {
         AtomicLong now = new AtomicLong();
-        App app = app(RateLimit.perIp(5, Duration.ofSeconds(10), now::get, 2));
+        App app = app(RateLimit.perIp(1, Duration.ofSeconds(10), now::get, 2));
         from(app, "a").expect(200);
         from(app, "b").expect(200);
-        from(app, "c").expect(429);
+        from(app, "a").expect(429);
+        from(app, "c").expect(200);
+        from(app, "b").expect(200);
         from(app, "a").expect(200);
+    }
+
+    @Test
+    void fillingTheTableDoesNotBlockOrSlowExistingClients() {
+        App app = app(RateLimit.perIp(1_000_000, Duration.ofSeconds(60), 10_000));
+        from(app, "existing").expect(200);
+        long start = System.nanoTime();
+        for (int i = 0; i < 30_000; i++) {
+            from(app, "10.0." + (i / 250) + "." + (i % 250)).expect(200);
+            if (i % 1000 == 0) {
+                from(app, "existing").expect(200);
+            }
+        }
+        assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 10);
+    }
+
+    @Test
+    void rejectsANonPositiveKeyCap() {
+        assertThrows(
+                IllegalArgumentException.class, () -> RateLimit.perIp(1, Duration.ofSeconds(1), 0));
     }
 
     @Test
