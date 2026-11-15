@@ -15,7 +15,8 @@ public record JoltConfig(
         Duration keepAliveTimeout,
         JsonMapper jsonMapper,
         int maxRequestLineBytes,
-        int maxHeaderCount) {
+        int maxHeaderCount,
+        boolean secureCookies) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -27,7 +28,8 @@ public record JoltConfig(
                 Duration.ofSeconds(5),
                 new BuiltInJsonMapper(),
                 8 * 1024,
-                100);
+                100,
+                false);
     }
 
     public JoltConfig maxConnections(int v) {
@@ -40,7 +42,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -53,7 +56,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -66,7 +70,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -79,7 +84,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -92,7 +98,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -105,7 +112,8 @@ public record JoltConfig(
                 v,
                 jsonMapper,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -118,7 +126,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 v,
                 maxRequestLineBytes,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -131,7 +140,8 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 v,
-                maxHeaderCount);
+                maxHeaderCount,
+                secureCookies);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -144,6 +154,21 @@ public record JoltConfig(
                 keepAliveTimeout,
                 jsonMapper,
                 maxRequestLineBytes,
+                v,
+                secureCookies);
+    }
+
+    public JoltConfig secureCookies(boolean v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
                 v);
     }
 }

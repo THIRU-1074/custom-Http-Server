@@ -18,6 +18,7 @@ public final class Response {
     private byte[] body = new byte[0];
     private boolean sent;
     private boolean typeExplicit;
+    private boolean secureCookies;
 
     public Response(JsonMapper mapper) {
         this.mapper = mapper;
@@ -41,14 +42,27 @@ public final class Response {
         return this;
     }
 
-    /** Adds a {@code Set-Cookie} header with {@code Path=/; HttpOnly; SameSite=Lax}. */
+    /** Adds {@code Secure} to default cookies; the server sets this from the config. */
+    public Response secureCookies(boolean on) {
+        this.secureCookies = on;
+        return this;
+    }
+
+    /**
+     * Adds a {@code Set-Cookie} header with {@code Path=/; HttpOnly; SameSite=Lax}, plus {@code
+     * Secure} when configured.
+     */
     public Response cookie(String name, String value) {
-        return cookie(name, value, "Path=/; HttpOnly; SameSite=Lax");
+        return cookie(
+                name, value, "Path=/; HttpOnly; SameSite=Lax" + (secureCookies ? "; Secure" : ""));
     }
 
     /** Adds one {@code Set-Cookie} header with the given attributes. */
     public Response cookie(String name, String value, String attributes) {
         checkHeader(name, value);
+        if (name.indexOf(';') >= 0 || name.indexOf('=') >= 0 || value.indexOf(';') >= 0) {
+            throw new IllegalArgumentException("Illegal character in cookie");
+        }
         checkHeader("Set-Cookie", attributes == null ? "" : attributes);
         String attrs = attributes == null || attributes.isBlank() ? "" : "; " + attributes;
         headers.add(Map.entry("Set-Cookie", name + "=" + value + attrs));

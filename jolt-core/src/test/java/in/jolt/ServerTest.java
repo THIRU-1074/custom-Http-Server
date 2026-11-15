@@ -275,6 +275,20 @@ class ServerTest {
     }
 
     @Test
+    void cookiesAreSecureWhenConfiguredAndRejectAttributeInjection() throws IOException {
+        App app = Jolt.create(JoltConfig.defaults().secureCookies(true));
+        app.get("/s", (req, res) -> res.cookie("a", "1").text("ok"));
+        app.get("/i", (req, res) -> res.cookie("a", "1; Domain=evil").text("ok"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals(
+                    "a=1; Path=/; HttpOnly; SameSite=Lax; Secure",
+                    c.get("/s").header("Set-Cookie"));
+            assertEquals(500, c.get("/i").status());
+        }
+    }
+
+    @Test
     void responseHelpersSetContentTypes() throws IOException {
         App app = Jolt.create();
         app.get("/html", (req, res) -> res.html("<p>x</p>"));
@@ -528,6 +542,7 @@ class ServerTest {
                         .maxRequestsPerConnection(4)
                         .maxRequestLineBytes(7)
                         .maxHeaderCount(8)
+                        .secureCookies(true)
                         .readTimeout(Duration.ofSeconds(5))
                         .keepAliveTimeout(Duration.ofSeconds(6))
                         .jsonMapper(
@@ -546,6 +561,7 @@ class ServerTest {
         assertEquals(4, c.maxRequestsPerConnection());
         assertEquals(7, c.maxRequestLineBytes());
         assertEquals(8, c.maxHeaderCount());
+        assertTrue(c.secureCookies());
         assertEquals(Duration.ofSeconds(5), c.readTimeout());
         assertEquals(Duration.ofSeconds(6), c.keepAliveTimeout());
         assertEquals("X", new String(c.jsonMapper().write(1), StandardCharsets.UTF_8));
