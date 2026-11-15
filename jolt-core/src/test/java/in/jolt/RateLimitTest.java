@@ -95,6 +95,38 @@ class RateLimitTest {
     }
 
     @Test
+    void ipv6AddressesInTheSame64ShareABucket() {
+        App app = app(RateLimit.perIp(1, Duration.ofSeconds(60)));
+        from(app, "2001:db8:1:2:aaaa:bbbb:cccc:dddd").expect(200);
+        from(app, "2001:db8:1:2::1").expect(429);
+        from(app, "2001:db8:1:3::1").expect(200);
+    }
+
+    @Test
+    void scopeIdsAreStrippedAndMappedIpv4IsTheIpv4() {
+        App app = app(RateLimit.perIp(1, Duration.ofSeconds(60)));
+        from(app, "fe80::1%eth0").expect(200);
+        from(app, "fe80::2%wlan1").expect(429);
+        from(app, "1.2.3.4").expect(200);
+        from(app, "::ffff:1.2.3.4").expect(429);
+    }
+
+    @Test
+    void perKeyUsesTheSuppliedKey() {
+        App app = app(RateLimit.perKey(1, Duration.ofSeconds(60), req -> req.header("X-Api-Key")));
+        JoltTest.of(app).get("/").header("X-Api-Key", "k1").expect(200);
+        JoltTest.of(app).get("/").header("X-Api-Key", "k1").remoteAddress("5.5.5.5").expect(429);
+        JoltTest.of(app).get("/").header("X-Api-Key", "k2").expect(200);
+    }
+
+    @Test
+    void perKeyRejectsNullFunction() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RateLimit.perKey(1, Duration.ofSeconds(1), null));
+    }
+
+    @Test
     void unknownAddressSharesOneBucket() {
         App app = app(RateLimit.perIp(1, Duration.ofSeconds(60)));
         JoltTest.of(app).get("/").remoteAddress(null).expect(200);
