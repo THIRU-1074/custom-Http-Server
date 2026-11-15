@@ -5,6 +5,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -204,7 +205,8 @@ public final class Json {
         String s = src.substring(start, pos);
         try {
             if (s.indexOf('.') < 0 && s.indexOf('e') < 0 && s.indexOf('E') < 0) {
-                return Long.parseLong(s);
+                BigInteger big = new BigInteger(s);
+                return big.bitLength() < 64 ? (Object) big.longValue() : big;
             }
             return Double.parseDouble(s);
         } catch (NumberFormatException e) {
@@ -399,22 +401,28 @@ public final class Json {
         if (!(v instanceof Number n)) {
             throw mismatch(where, "a number");
         }
-        if (target == Integer.class) {
-            return n.intValue();
-        } else if (target == Long.class) {
-            return n.longValue();
-        } else if (target == Double.class) {
+        if (target == Double.class) {
             return n.doubleValue();
         } else if (target == Float.class) {
             return n.floatValue();
-        } else if (target == Short.class) {
-            return n.shortValue();
-        } else if (target == Byte.class) {
-            return n.byteValue();
-        } else if (target == BigDecimal.class) {
-            return new BigDecimal(n.toString());
         }
-        return n;
+        BigDecimal exact = new BigDecimal(n.toString());
+        try {
+            if (target == Integer.class) {
+                return exact.intValueExact();
+            } else if (target == Long.class) {
+                return exact.longValueExact();
+            } else if (target == Short.class) {
+                return exact.shortValueExact();
+            } else if (target == Byte.class) {
+                return exact.byteValueExact();
+            } else if (target == BigInteger.class) {
+                return exact.toBigIntegerExact();
+            }
+        } catch (ArithmeticException e) {
+            throw mismatch(where, "an integer in range for " + target.getSimpleName());
+        }
+        return target == BigDecimal.class ? exact : n;
     }
 
     private static Class<?> wrap(Class<?> c) {
