@@ -12,6 +12,7 @@
   <modules>
     <module>jolt-core</module>
     <module>jolt-auth</module>
+    <module>jolt-mcp</module>
     <module>examples/attendance</module>
     <module>examples/webhook</module>
   </modules>
@@ -39,6 +40,11 @@
       <dependency>
         <groupId>in.jolt</groupId>
         <artifactId>jolt-auth</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>in.jolt</groupId>
+        <artifactId>jolt-mcp</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

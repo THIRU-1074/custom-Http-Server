@@ -62,6 +62,17 @@ public class Router {
         return route("OPTIONS", path, h);
     }
 
+    /** Tags the most recently registered route as an MCP tool with this description. */
+    public Router tool(String description) {
+        if (defs.isEmpty()) {
+            throw new IllegalStateException("tool() must follow a route registration");
+        }
+        int last = defs.size() - 1;
+        Route r = defs.get(last);
+        defs.set(last, new Route(r.method(), r.path(), description));
+        return this;
+    }
+
     /** Runs {@code mw} for every request, in registration order. */
     public Router use(Middleware mw) {
         return use("/", mw);
