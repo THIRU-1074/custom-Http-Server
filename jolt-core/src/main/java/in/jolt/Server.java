@@ -28,7 +28,10 @@ public final class Server implements AutoCloseable {
     private final Semaphore permits;
     private final Set<ConnectionHandler> live = ConcurrentHashMap.newKeySet();
     private final Thread acceptor;
+    private final Object closeLock = new Object();
     private volatile boolean closing;
+    private boolean closed;
+    private Thread shutdownHook;
 
     Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
             throws IOException {
@@ -50,6 +53,30 @@ public final class Server implements AutoCloseable {
     /** The bound port, useful after {@code listen(0)}. */
     public int port() {
         return serverSocket.getLocalPort();
+    }
+
+    /** Closes this server from a JVM shutdown hook. Calling it again has no effect. */
+    public synchronized Server closeOnShutdown() {
+        if (shutdownHook == null && !closing) {
+            shutdownHook = new Thread(this::close, "jolt-shutdown");
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+        }
+        return this;
+    }
+
+    synchronized Thread shutdownHook() {
+        return shutdownHook;
+    }
+
+    private synchronized void unregisterHook() {
+        if (shutdownHook != null && Thread.currentThread() != shutdownHook) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down
+            }
+            shutdownHook = null;
+        }
     }
 
     private void acceptLoop() {
@@ -93,23 +120,35 @@ public final class Server implements AutoCloseable {
         }
     }
 
-    /** Stops accepting, lets in-flight requests finish (up to 5 s), then drops what is left. */
+    /**
+     * Stops accepting, lets in-flight requests finish (up to 5 s), then drops what is left. Safe to
+     * call more than once and from several threads: the first caller drains, the others wait for it
+     * to finish.
+     */
     @Override
     public void close() {
-        closing = true;
-        try {
-            serverSocket.close();
-            acceptor.join();
-            live.forEach(ConnectionHandler::closeIfIdle);
-            executor.shutdown();
-            if (!executor.awaitTermination(GRACE_SECONDS, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+        synchronized (closeLock) {
+            if (closed) {
+                return;
             }
-        } catch (IOException e) {
-            LOG.log(System.Logger.Level.WARNING, "Closing server socket failed", e);
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
+            closing = true;
+            unregisterHook();
+            try {
+                serverSocket.close();
+                acceptor.join();
+                live.forEach(ConnectionHandler::closeIfIdle);
+                executor.shutdown();
+                if (!executor.awaitTermination(GRACE_SECONDS, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (IOException e) {
+                LOG.log(System.Logger.Level.WARNING, "Closing server socket failed", e);
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            } finally {
+                closed = true;
+            }
         }
     }
 }
