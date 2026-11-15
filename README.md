@@ -81,13 +81,13 @@ flowchart LR
 
 ## Numbers
 
-Postman load test, 50 virtual users for 1 minute ([report](jolt-http-server/REST-API-basics--CRUD,-test-&-variable-performance-report-8.html)):
+Postman load test, 50 virtual users for 1 minute ([report](docs/baseline/v0.1-postman-report.html)):
 
 | Requests | Throughput | Avg response | Errors |
 |---|---|---|---|
 | 1,860 | 27.45 req/s | 295 ms | 0.00 % |
 
-![Jolt load test metrics](jolt-http-server/Jolt-Metrics.png)
+![Jolt load test metrics](docs/baseline/Jolt-Metrics.png)
 
 ## What I learned
 
