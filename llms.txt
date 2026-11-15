@@ -55,6 +55,9 @@ Result is JSON 200; null gives 204; Reply.status(code, obj) picks the status; ba
     app.onError(TodoNotFound.class, e -> Reply.status(404, Map.of("error", e.getMessage())));
 Closest class or interface wins (ties: first registered); HttpException keeps its status unless mapped for HttpException; unmapped stays a generic 500, mapped non-HTTP errors are logged. No DI: wire by hand in main(). See docs/SOLID.md.
 
+## Routing extras
+    app.get("/x", auth, validate, handler)   // route middleware (1-2 + handler, mw.then(mw2) for more); typed: r.post("/", auth, In.class, (p, in) -> ..)
+
 ## Auth (jolt-auth)
     JwtAuth jwt = JwtAuth.hs256(System.getenv("JWT_SECRET"));   // no default secret
     String token = jwt.sign("alice", Map.of("role","admin"), Duration.ofHours(1));

@@ -65,43 +65,140 @@ public class Router {
 
     /** Typed GET: the result is written as JSON, {@code null} gives 204. */
     public <O> Router get(String path, Typed.Read<O> fn) {
-        return get(path, (req, res) -> reply(res, fn.apply(req)));
+        return get(path, read(fn));
     }
 
     /** Bodiless typed POST, PUT and PATCH: params and query only, replies like {@link #get}. */
     public <O> Router post(String path, Typed.Read<O> fn) {
-        return post(path, (req, res) -> reply(res, fn.apply(req)));
+        return post(path, read(fn));
     }
 
     public <O> Router put(String path, Typed.Read<O> fn) {
-        return put(path, (req, res) -> reply(res, fn.apply(req)));
+        return put(path, read(fn));
     }
 
     public <O> Router patch(String path, Typed.Read<O> fn) {
-        return patch(path, (req, res) -> reply(res, fn.apply(req)));
+        return patch(path, read(fn));
     }
 
     /** Typed POST: binds the JSON body to {@code in} (400 if invalid), then writes the result. */
     public <I, O> Router post(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return post(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+        return post(path, write(in, fn));
     }
 
     public <I, O> Router put(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return put(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+        return put(path, write(in, fn));
     }
 
     public <I, O> Router patch(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return patch(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+        return patch(path, write(in, fn));
     }
 
     /** Typed DELETE: runs {@code fn} and answers 204. */
     public Router delete(String path, Typed.Run fn) {
-        return delete(
-                path,
-                (req, res) -> {
-                    fn.run(req);
-                    res.status(HttpStatus.NO_CONTENT);
-                });
+        return delete(path, run(fn));
+    }
+
+    /**
+     * Route-level middleware: {@code get|post|put|patch|delete(path, mw..., handler)} runs the
+     * middleware in order, then the handler. A middleware that does not call {@code next.run()}
+     * stops the chain. Typed handlers take one middleware; use {@link Middleware#then} for more.
+     */
+    public Router get(String path, Middleware mw, Handler h) {
+        return get(path, chain(h, mw));
+    }
+
+    public Router get(String path, Middleware a, Middleware b, Handler h) {
+        return get(path, chain(h, a, b));
+    }
+
+    public Router post(String path, Middleware mw, Handler h) {
+        return post(path, chain(h, mw));
+    }
+
+    public Router post(String path, Middleware a, Middleware b, Handler h) {
+        return post(path, chain(h, a, b));
+    }
+
+    public Router put(String path, Middleware mw, Handler h) {
+        return put(path, chain(h, mw));
+    }
+
+    public Router put(String path, Middleware a, Middleware b, Handler h) {
+        return put(path, chain(h, a, b));
+    }
+
+    public Router patch(String path, Middleware mw, Handler h) {
+        return patch(path, chain(h, mw));
+    }
+
+    public Router patch(String path, Middleware a, Middleware b, Handler h) {
+        return patch(path, chain(h, a, b));
+    }
+
+    public Router delete(String path, Middleware mw, Handler h) {
+        return delete(path, chain(h, mw));
+    }
+
+    public Router delete(String path, Middleware a, Middleware b, Handler h) {
+        return delete(path, chain(h, a, b));
+    }
+
+    public <O> Router get(String path, Middleware mw, Typed.Read<O> fn) {
+        return get(path, chain(read(fn), mw));
+    }
+
+    public <O> Router post(String path, Middleware mw, Typed.Read<O> fn) {
+        return post(path, chain(read(fn), mw));
+    }
+
+    public <O> Router put(String path, Middleware mw, Typed.Read<O> fn) {
+        return put(path, chain(read(fn), mw));
+    }
+
+    public <O> Router patch(String path, Middleware mw, Typed.Read<O> fn) {
+        return patch(path, chain(read(fn), mw));
+    }
+
+    public <I, O> Router post(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
+        return post(path, chain(write(in, fn), mw));
+    }
+
+    public <I, O> Router put(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
+        return put(path, chain(write(in, fn), mw));
+    }
+
+    public <I, O> Router patch(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
+        return patch(path, chain(write(in, fn), mw));
+    }
+
+    public Router delete(String path, Middleware mw, Typed.Run fn) {
+        return delete(path, chain(run(fn), mw));
+    }
+
+    private static Handler chain(Handler h, Middleware... mws) {
+        Handler out = h;
+        for (int i = mws.length - 1; i >= 0; i--) {
+            Middleware mw = mws[i];
+            Handler inner = out;
+            out = (req, res) -> mw.handle(req, res, () -> inner.handle(req, res));
+        }
+        return out;
+    }
+
+    private static <O> Handler read(Typed.Read<O> fn) {
+        return (req, res) -> reply(res, fn.apply(req));
+    }
+
+    private static <I, O> Handler write(Class<I> in, Typed.Write<I, O> fn) {
+        return (req, res) -> reply(res, fn.apply(req, req.body(in)));
+    }
+
+    private static Handler run(Typed.Run fn) {
+        return (req, res) -> {
+            fn.run(req);
+            res.status(HttpStatus.NO_CONTENT);
+        };
     }
 
     private static void reply(Response res, Object out) {
