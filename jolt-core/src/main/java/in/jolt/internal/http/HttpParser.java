@@ -35,6 +35,7 @@ public final class HttpParser {
             Set.of("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
     private static final int MAX_CHUNK_LINE = 1024;
     private static final int READ_CHUNK = 8192;
+    private static final int MAX_LEADING_BREAKS = 8;
 
     private HttpParser() {}
 
@@ -95,6 +96,7 @@ public final class HttpParser {
             }
             String name = lines[i].substring(0, colon);
             String value = lines[i].substring(colon + 1).trim();
+            checkNoControlChars(value);
             String sep = name.equalsIgnoreCase("Cookie") ? "; " : ", ";
             headers.merge(name, value, (a, b) -> a + sep + b);
         }
@@ -106,6 +108,8 @@ public final class HttpParser {
     private static byte[] readHead(InputStream in, Limits limits) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream(512);
         int tail = 0;
+        int skipped = 0;
+        int prev = -1;
         boolean inRequestLine = true;
         while (true) {
             int b = in.read();
@@ -116,8 +120,15 @@ public final class HttpParser {
                 throw bad("Unexpected end of request");
             }
             if (buf.size() == 0 && (b == '\r' || b == '\n')) {
+                if (++skipped > MAX_LEADING_BREAKS) {
+                    throw bad("Too many empty lines before request line");
+                }
                 continue;
             }
+            if (prev == '\r' && b != '\n' || b == '\n' && prev != '\r') {
+                throw bad("Bare CR or LF in header block");
+            }
+            prev = b;
             buf.write(b);
             if (inRequestLine) {
                 if (b == '\n') {
@@ -192,14 +203,14 @@ public final class HttpParser {
         while (true) {
             String line = readLine(in);
             int semi = line.indexOf(';');
-            String hex = (semi < 0 ? line : line.substring(0, semi)).trim();
+            String hex = semi < 0 ? line : line.substring(0, semi);
+            if (!isHex(hex)) {
+                throw bad("Invalid chunk size");
+            }
             int size;
             try {
                 size = Integer.parseInt(hex, 16);
             } catch (NumberFormatException e) {
-                throw bad("Invalid chunk size");
-            }
-            if (size < 0) {
                 throw bad("Invalid chunk size");
             }
             if (size == 0) {
@@ -227,14 +238,36 @@ public final class HttpParser {
             }
             if (b == '\n') {
                 int n = sb.length();
-                if (n > 0 && sb.charAt(n - 1) == '\r') {
-                    sb.setLength(n - 1);
+                if (n == 0 || sb.charAt(n - 1) != '\r') {
+                    throw bad("Bare LF in chunked framing");
                 }
+                sb.setLength(n - 1);
                 return sb.toString();
             }
             sb.append((char) b);
             if (sb.length() > MAX_CHUNK_LINE) {
                 throw bad("Chunk line too long");
+            }
+        }
+    }
+
+    private static boolean isHex(String s) {
+        if (s.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            if (Character.digit(s.charAt(i), 16) < 0 || s.charAt(i) > 'f') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void checkNoControlChars(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < ' ' && c != '	' || c == 0x7f) {
+                throw bad("Control character in header value");
             }
         }
     }
