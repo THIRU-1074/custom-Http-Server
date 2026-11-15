@@ -1,7 +1,10 @@
 package in.jolt.internal.http;
 
+import in.jolt.HttpException;
 import in.jolt.Reply;
 import in.jolt.Response;
+import in.jolt.ValidationException;
+import java.util.Map;
 import java.util.Set;
 
 /** Turns a {@link Reply} into a {@link Response}; shared by typed routes and error mapping. */
@@ -29,6 +32,14 @@ public final class Replies {
     /** Error response for {@code reply}, see {@link #errorBase}. */
     public static Response error(Response original, Reply<?> reply) {
         return write(errorBase(original), reply);
+    }
+
+    /** Error response for {@code e}: validation errors as JSON, anything else as plain text. */
+    public static Response error(Response original, HttpException e) {
+        if (e instanceof ValidationException v) {
+            return error(original, new Reply<>(v.status(), Map.of("errors", v.errors())));
+        }
+        return error(original, e.status(), String.valueOf(e.getMessage()));
     }
 
     /** Plain-text error response, see {@link #errorBase}. */

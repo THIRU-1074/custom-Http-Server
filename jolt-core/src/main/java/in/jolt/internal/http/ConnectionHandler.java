@@ -164,13 +164,13 @@ public final class ConnectionHandler implements Runnable {
                 return Replies.error(res, reply);
             }
         } catch (HttpException e) {
-            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e);
         } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
             return internalError(res);
         }
         if (t instanceof HttpException e) {
-            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e);
         }
         LOG.log(
                 System.Logger.Level.ERROR,

@@ -56,6 +56,7 @@ Result is JSON 200; null gives 204; Reply.status(code, obj) picks the status; ba
 Closest class or interface wins (ties: first registered); HttpException keeps its status unless mapped for HttpException; unmapped stays a generic 500, mapped non-HTTP errors are logged. No DI: wire by hand in main(). See docs/SOLID.md.
 
 ## Routing extras
+    app.post("/x", In.class, Validate.with((in, r) -> r.notBlank("title", in.title()).range("n", in.n(), 1, 9), (p, in) -> ..))   // 422 {"errors":{field:msg}}; Rules: notBlank range size matches(Pattern) oneOf error; v1.and(v2); inside any handler: Validate.check(r -> ..)
     req.param("id", Long.class)  req.query("page", int.class, 1)   // also on Params; Long Integer Boolean Double UUID enum Instant LocalDate; bad value 400 naming it
     app.get("/x", auth, validate, handler)   // route middleware (1-2 + handler, mw.then(mw2) for more); typed: r.post("/", auth, In.class, (p, in) -> ..)
 
