@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Minimal JSON parser and writer. Parsed values are {@code Map}, {@code List}, {@code String},
@@ -22,6 +23,8 @@ import java.util.Map;
  */
 public final class Json {
 
+    private static final Pattern NUMBER =
+            Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int MAX_DEPTH = 64;
     private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
 
@@ -208,6 +211,10 @@ public final class Json {
             pos++;
         }
         String s = src.substring(start, pos);
+        if (!NUMBER.matcher(s).matches()) {
+            pos = start;
+            throw error();
+        }
         try {
             if (s.indexOf('.') < 0 && s.indexOf('e') < 0 && s.indexOf('E') < 0) {
                 BigInteger big = new BigInteger(s);

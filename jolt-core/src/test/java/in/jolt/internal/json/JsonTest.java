@@ -70,7 +70,17 @@ class JsonTest {
                 "1.2.3",
                 "{} extra",
                 "\"tab\there\"",
-                "\"trailing\\"
+                "\"trailing\\",
+                "+1",
+                ".5",
+                "01",
+                "-01",
+                "1.",
+                "1e",
+                "-",
+                "[+1]",
+                "{\"a\":.5}",
+                "00"
             })
     void rejectsInvalidJson(String bad) {
         var e = assertThrows(IllegalArgumentException.class, () -> Json.parse(bad));
