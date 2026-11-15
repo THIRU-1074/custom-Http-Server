@@ -1,0 +1,25 @@
+# Jolt starter
+
+A tiny todos API on [Jolt](https://github.com/THIRU-1074/custom-Http-Server). Copy this folder and build from it.
+
+## Quick start
+
+1. Install JDK 21 and Maven.
+2. Copy this folder: `cp -r jolt-starter my-app && cd my-app`
+3. Run the tests: `mvn -q test`
+4. Start the server: `mvn -q exec:java` (set `PORT` to change the port, default 8080)
+5. Try it:
+
+```
+curl -X POST localhost:8080/todos -H 'Content-Type: application/json' -d '{"title":"learn Jolt"}'
+curl localhost:8080/todos
+curl -X DELETE localhost:8080/todos/1
+```
+
+## Layout
+
+- `src/main/java/app/Main.java`: routes and `main`. Add your routes in `create()`.
+- `src/test/java/app/TodoAppTest.java`: in-memory tests with `JoltTest`, no sockets.
+- `llms.txt`: Jolt API cheat sheet for AI tools. `AGENTS.md` tells them how to use it.
+
+The server binds to `127.0.0.1` only. To expose it, use `JoltConfig.defaults().bindAddress("0.0.0.0")`.
