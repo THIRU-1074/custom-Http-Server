@@ -39,7 +39,7 @@ Any implementation of an interface must be usable where the interface is expecte
 Depend on the narrowest type that does the job.
 
 - `Params` exposes only `param(name)` and `query(name)`. Typed handlers receive it instead of `Request`, so they cannot read headers, cookies or the body by accident.
-- Keep repository interfaces small. `TodoRepository` has four methods; split a port when a consumer needs only part of it.
+- Keep repository interfaces small. `TodoRepository` has five methods; split a port when a consumer needs only part of it.
 - `RouteModule` is a single method, so any lambda or class qualifies.
 
 ## D: dependency inversion

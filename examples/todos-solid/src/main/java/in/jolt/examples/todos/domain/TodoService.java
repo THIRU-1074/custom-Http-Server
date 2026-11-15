@@ -17,7 +17,7 @@ public class TodoService {
 
     public Todo add(String title) {
         if (title == null || title.isBlank()) {
-            throw new IllegalArgumentException("Title is required");
+            throw new InvalidTodo("Title is required");
         }
         return repository.save(new Todo(0, title.trim(), false));
     }
@@ -27,8 +27,9 @@ public class TodoService {
     }
 
     public Todo setDone(long id, boolean done) {
-        Todo t = get(id);
-        return repository.save(new Todo(t.id(), t.title(), done));
+        return repository
+                .update(id, t -> new Todo(t.id(), t.title(), done))
+                .orElseThrow(() -> new TodoNotFound(id));
     }
 
     public void remove(long id) {

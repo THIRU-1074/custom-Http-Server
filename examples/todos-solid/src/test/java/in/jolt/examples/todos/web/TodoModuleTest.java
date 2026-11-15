@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import in.jolt.App;
 import in.jolt.Jolt;
+import in.jolt.examples.todos.domain.InvalidTodo;
 import in.jolt.examples.todos.domain.Todo;
 import in.jolt.examples.todos.domain.TodoNotFound;
 import in.jolt.examples.todos.domain.TodoService;
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 class TodoModuleTest {
 
-    private static final class FakeService extends TodoService {
+    private static class FakeService extends TodoService {
         FakeService() {
             super(null);
         }
@@ -26,7 +27,7 @@ class TodoModuleTest {
         @Override
         public Todo add(String title) {
             if (title.isBlank()) {
-                throw new IllegalArgumentException("Title is required");
+                throw new InvalidTodo("Title is required");
             }
             return new Todo(2, title, false);
         }
@@ -89,5 +90,25 @@ class TodoModuleTest {
                 true,
                 t.patch("/todos/1").json(new Changes(true)).expect(200).json(Todo.class).done());
         t.delete("/todos/1").expect(204);
+    }
+
+    @Test
+    void patchWithoutTheDoneFieldIs400() {
+        t.patch("/todos/1").text("{}").expect(400).bodyContains("done");
+        t.patch("/todos/1").text("{\"done\":null}").expect(400);
+    }
+
+    @Test
+    void onlyInvalidTodoIs400NotEveryIllegalArgument() {
+        App app = Jolt.create();
+        new TodoModule(
+                        new FakeService() {
+                            @Override
+                            public List<Todo> list() {
+                                throw new IllegalArgumentException("library bug");
+                            }
+                        })
+                .install(app);
+        JoltTest.of(app).get("/todos").expect(500).body("Internal Server Error");
     }
 }

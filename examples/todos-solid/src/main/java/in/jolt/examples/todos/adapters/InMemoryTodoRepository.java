@@ -1,11 +1,13 @@
 package in.jolt.examples.todos.adapters;
 
 import in.jolt.examples.todos.domain.Todo;
+import in.jolt.examples.todos.domain.TodoNotFound;
 import in.jolt.examples.todos.domain.TodoRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 
 public final class InMemoryTodoRepository implements TodoRepository {
 
@@ -24,10 +26,20 @@ public final class InMemoryTodoRepository implements TodoRepository {
 
     @Override
     public Todo save(Todo todo) {
-        Todo stored =
-                todo.id() == 0 ? new Todo(ids.incrementAndGet(), todo.title(), todo.done()) : todo;
-        rows.put(stored.id(), stored);
-        return stored;
+        if (todo.id() == 0) {
+            Todo stored = new Todo(ids.incrementAndGet(), todo.title(), todo.done());
+            rows.put(stored.id(), stored);
+            return stored;
+        }
+        if (rows.replace(todo.id(), todo) == null) {
+            throw new TodoNotFound(todo.id());
+        }
+        return todo;
+    }
+
+    @Override
+    public Optional<Todo> update(long id, UnaryOperator<Todo> change) {
+        return Optional.ofNullable(rows.computeIfPresent(id, (k, t) -> change.apply(t)));
     }
 
     @Override

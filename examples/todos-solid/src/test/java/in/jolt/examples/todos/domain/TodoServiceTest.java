@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
 class TodoServiceTest {
@@ -26,11 +27,19 @@ class TodoServiceTest {
 
         @Override
         public Todo save(Todo todo) {
+            if (todo.id() != 0 && find(todo.id()).isEmpty()) {
+                throw new TodoNotFound(todo.id());
+            }
             Todo saved =
                     todo.id() == 0 ? new Todo(rows.size() + 1L, todo.title(), todo.done()) : todo;
             rows.removeIf(t -> t.id() == saved.id());
             rows.add(saved);
             return saved;
+        }
+
+        @Override
+        public Optional<Todo> update(long id, UnaryOperator<Todo> change) {
+            return find(id).map(change).map(this::save);
         }
 
         @Override
@@ -51,8 +60,8 @@ class TodoServiceTest {
 
     @Test
     void addRejectsBlankTitles() {
-        assertThrows(IllegalArgumentException.class, () -> service.add("  "));
-        assertThrows(IllegalArgumentException.class, () -> service.add(null));
+        assertThrows(InvalidTodo.class, () -> service.add("  "));
+        assertThrows(InvalidTodo.class, () -> service.add(null));
     }
 
     @Test
@@ -73,5 +82,11 @@ class TodoServiceTest {
         service.remove(id);
         assertTrue(service.list().isEmpty());
         assertThrows(TodoNotFound.class, () -> service.remove(id));
+    }
+
+    @Test
+    void setDoneOnAMissingTodoThrowsTodoNotFound() {
+        assertThrows(TodoNotFound.class, () -> service.setDone(9, true));
+        assertTrue(repo.rows.isEmpty());
     }
 }

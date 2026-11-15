@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import in.jolt.examples.todos.adapters.InMemoryTodoRepository;
 import in.jolt.examples.todos.domain.Todo;
+import in.jolt.examples.todos.domain.TodoNotFound;
 import in.jolt.examples.todos.domain.TodoRepository;
 import in.jolt.examples.todos.web.NewTodo;
 import in.jolt.test.JoltTest;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
 class MainTest {
@@ -28,8 +30,18 @@ class MainTest {
 
         @Override
         public Todo save(Todo todo) {
+            if (todo.id() != 0 && find(todo.id()).isEmpty()) {
+                throw new TodoNotFound(todo.id());
+            }
             slot = todo.id() == 0 ? new Todo(1, todo.title(), todo.done()) : todo;
             return slot;
+        }
+
+        @Override
+        public Optional<Todo> update(long id, UnaryOperator<Todo> change) {
+            Optional<Todo> next = find(id).map(change);
+            next.ifPresent(t -> slot = t);
+            return next;
         }
 
         @Override
