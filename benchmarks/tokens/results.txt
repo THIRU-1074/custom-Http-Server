@@ -1,7 +1,7 @@
-Tokenizer: ESTIMATE chars/4 (tiktoken unavailable: ModuleNotFoundError)
+Tokenizer: tiktoken cl100k_base
 
 framework   source    test   build   total   vs jolt
-jolt           609     360     160    1129     1.00x
-spring         896     486     326    1708     1.51x
-javalin        680     377     334    1391     1.23x
-express        429     225      49     703     0.62x
+jolt           510     320     187    1017     1.00x
+spring         643     319     358    1320     1.30x
+javalin        535     237     400    1172     1.15x
+express        488     228      73     789     0.78x

@@ -190,8 +190,8 @@ class HttpParserTest {
     void percentDecodeHandlesPlusAndMultibyte() {
         assertEquals("a b", Codec.percentDecode("a+b", true));
         assertEquals("a+b", Codec.percentDecode("a+b", false));
-        assertEquals("😀", Codec.percentDecode("%F0%9F%98%80", false));
-        assertEquals("😀", Codec.percentDecode("😀", false));
+        assertEquals("\uD83D\uDE00", Codec.percentDecode("%F0%9F%98%80", false));
+        assertEquals("\uD83D\uDE00", Codec.percentDecode("\uD83D\uDE00", false));
         assertThrows(IllegalArgumentException.class, () -> Codec.percentDecode("%4", false));
     }
 }

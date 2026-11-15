@@ -24,7 +24,13 @@ public final class Main {
             System.exit(1);
             return;
         }
-        DBConnection.init();
+        try {
+            DBConnection.init(System.getenv("ADMIN_USER"), System.getenv("ADMIN_PASSWORD"));
+        } catch (IllegalArgumentException e) {
+            LOG.log(System.Logger.Level.ERROR, e.getMessage());
+            System.exit(1);
+            return;
+        }
         var config = JoltConfig.fromEnv();
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 5007;
         var server = AttendanceApp.create(JwtAuth.hs256(secret), config).listen(port);

@@ -8,3 +8,4 @@ These principles are non-negotiable. A change that violates one is rejected, or 
 4. **Every behavior change ships with a test.** Bug fixes start with a failing test, committed together with the fix.
 5. **No silent failure.** Every request gets a response. A handler exception becomes a 500, never a hung connection.
 6. **Token-small is a feature.** Jolt should take the fewest tokens to build a server with. Growing the public API requires an ADR.
+7. **Leave the workspace clean.** Every git worktree, scratch clone and background process created for a task is removed when the task ends, so worktrees never accumulate and slow the editor.
