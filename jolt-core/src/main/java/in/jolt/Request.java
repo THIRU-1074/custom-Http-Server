@@ -21,6 +21,7 @@ public final class Request {
     private Map<String, String> params = Map.of();
     private Map<String, String> query;
     private Map<String, String> cookies;
+    private Map<String, String> form;
 
     public Request(
             String method,
@@ -68,15 +69,32 @@ public final class Request {
 
     public Map<String, String> query() {
         if (query == null) {
-            query = parsePairs(rawQuery, "&", true);
+            query = parsePairs(rawQuery, "&", true, false);
         }
         return Collections.unmodifiableMap(query);
+    }
+
+    /**
+     * Fields of an {@code application/x-www-form-urlencoded} body (first value wins), or an empty
+     * map for any other content type. The body is already capped by {@code maxBodyBytes}.
+     *
+     * @throws HttpException 400 on a malformed percent-escape
+     */
+    public Map<String, String> form() {
+        String type = headers.getOrDefault("Content-Type", "");
+        if (!type.regionMatches(true, 0, "application/x-www-form-urlencoded", 0, 33)) {
+            return Map.of();
+        }
+        if (form == null) {
+            form = parsePairs(text(), "&", true, true);
+        }
+        return Collections.unmodifiableMap(form);
     }
 
     /** Value of a cookie from the {@code Cookie} header, or {@code null}. */
     public String cookie(String name) {
         if (cookies == null) {
-            cookies = parsePairs(headers.getOrDefault("Cookie", ""), ";", false);
+            cookies = parsePairs(headers.getOrDefault("Cookie", ""), ";", false, false);
         }
         return cookies.get(name);
     }
@@ -127,7 +145,8 @@ public final class Request {
         this.params = params;
     }
 
-    private static Map<String, String> parsePairs(String s, String sep, boolean plusAsSpace) {
+    private static Map<String, String> parsePairs(
+            String s, String sep, boolean plusAsSpace, boolean strict) {
         Map<String, String> out = new LinkedHashMap<>();
         if (s.isEmpty()) {
             return out;
@@ -143,8 +162,10 @@ public final class Request {
             try {
                 k = Codec.percentDecode(k, plusAsSpace);
                 v = Codec.percentDecode(v, plusAsSpace);
-            } catch (IllegalArgumentException ignored) {
-                // keep the raw token when the escape is malformed
+            } catch (IllegalArgumentException e) {
+                if (strict) {
+                    throw new HttpException(HttpStatus.BAD_REQUEST, "Malformed form encoding");
+                }
             }
             out.putIfAbsent(k, v);
         }

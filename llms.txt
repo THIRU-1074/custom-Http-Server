@@ -18,6 +18,7 @@ Static beats :param beats *. Wrong method on a known path gives 405 + Allow. HEA
     req.method() req.path() req.header("X") (case-insensitive) req.headers()
     req.query("page")  req.query() (Map)  req.cookie("sid")
     req.text()  req.body() (byte[])
+    req.form().get("name")                // urlencoded body; {} for other types, 400 if malformed
     req.body(Todo.class)                  // JSON into a record; 400 on bad input
     req.attr("user")  req.attr("user", v) // per-request values set by middleware
 
