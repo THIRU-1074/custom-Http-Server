@@ -40,6 +40,15 @@ Respond without next.run() to stop the chain.
     api.get("/users", (req, res) -> res.json(users));
     app.use("/api", api);                 // GET /api/users; longest prefix wins
 
+## Modules and typed routes (keep services free of HTTP)
+    app.module("/todos", new TodoModule(service));    // RouteModule: void register(Router r)
+    r.get("/:id", p -> service.get(id(p)));           // p is Params: param(), query()
+    r.post("/", NewTodo.class, (p, in) -> Reply.created(service.add(in.title())));
+    r.delete("/:id", p -> service.remove(id(p)));     // put/patch like post; delete gives 204
+Result is JSON 200; null gives 204; Reply.status(code, obj) picks the status; bad body 400; handlers may throw.
+    app.onError(TodoNotFound.class, e -> Reply.status(404, Map.of("error", e.getMessage())));
+Most specific type wins; unmapped exceptions stay a generic 500. No DI: wire by hand in main(). See docs/SOLID.md.
+
 ## Auth (jolt-auth)
     JwtAuth jwt = JwtAuth.hs256(System.getenv("JWT_SECRET"));   // no default secret
     String token = jwt.sign("alice", Map.of("role","admin"), Duration.ofHours(1));
