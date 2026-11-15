@@ -14,7 +14,7 @@ public final class Cors {
             throw new IllegalArgumentException("CORS needs one explicit origin");
         }
         return (req, res, next) -> {
-            res.header("Vary", "Origin");
+            varyOrigin(res);
             if (origin.equals(req.header("Origin"))) {
                 res.header("Access-Control-Allow-Origin", origin);
                 if (req.method().equals("OPTIONS")
@@ -28,5 +28,25 @@ public final class Cors {
             }
             next.run();
         };
+    }
+
+    private static void varyOrigin(Response res) {
+        String existing =
+                res.headers().stream()
+                        .filter(h -> h.getKey().equalsIgnoreCase("Vary"))
+                        .map(java.util.Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(null);
+        if (existing == null || existing.isBlank()) {
+            res.header("Vary", "Origin");
+            return;
+        }
+        for (String token : existing.split(",")) {
+            String t = token.trim();
+            if (t.equals("*") || t.equalsIgnoreCase("Origin")) {
+                return;
+            }
+        }
+        res.header("Vary", existing + ", Origin");
     }
 }
