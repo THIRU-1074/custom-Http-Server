@@ -39,7 +39,11 @@ class ServerTest {
                 (req, res) ->
                         res.send(req.body()).header("Content-Type", "application/octet-stream"));
         app.post("/todos", (req, res) -> res.status(201).json(req.body(Todo.class)));
-        app.get("/boom", (req, res) -> Request.class.cast(null).method());
+        app.get(
+                "/boom",
+                (req, res) -> {
+                    throw new IllegalStateException("intentional test failure");
+                });
         app.get(
                 "/teapot",
                 (req, res) -> {
