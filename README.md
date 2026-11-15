@@ -5,15 +5,35 @@
 Write a Java web server the way you write one in Express.js, with no annotations, no beans and no container to learn first.
 
 ```java
-Jolt.GET("/hello/:name", (req, res) -> {
-    JSON body = new JSON();
-    body.add("greeting", "Hello " + req.urlPathParams.get("name"));
-    res.setBody(body);
-});
-Jolt.listen(8080, () -> System.out.println("up"));
+var app = Jolt.create();
+app.get("/hello/:name", (req, res) -> res.json(Map.of("greeting", "Hello " + req.param("name"))));
+app.listen(8080);
 ```
 
-> Status: **v0.1.0 (proof of concept)**. Jolt works for the demo apps and survived a load test, but it is not yet a library you can import: the API below is package-private today, so the snippet only compiles inside the `in.jolt` package. Several known bugs are listed in [Where it is going](#where-it-is-going).
+## Install
+
+Requires JDK 21. Jolt is published through [JitPack](https://jitpack.io), so add its repository and the dependency:
+
+```xml
+<repositories>
+  <repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+  </repository>
+</repositories>
+
+<dependencies>
+  <dependency>
+    <groupId>com.github.THIRU-1074.custom-Http-Server</groupId>
+    <artifactId>jolt-core</artifactId>
+    <version>v0.2.0</version>
+  </dependency>
+</dependencies>
+```
+
+Optional modules use the same group and version: `jolt-auth` (JWT and Basic auth) and `jolt-mcp` (expose routes as MCP tools). `jolt-core` has no dependencies of its own. A compact API cheat sheet for AI tools is in [llms.txt](llms.txt).
+
+> Note: the story below describes how v0.1.0 was built. Since then the code was rewritten as a multi-module library (see `docs/ARCHITECTURE.md`).
 
 ## The story
 
@@ -91,17 +111,18 @@ A review of v0.1.0 found real problems (15 are listed in [docs/KRA.md](docs/KRA.
    - helpful one-line errors,
    - registered routes exposed as MCP tools.
 
-## Getting started
+## Run the examples
 
-Requirements: JDK 24 (what `pom.xml` targets today; v1 moves to 21 LTS) and Maven.
+Requires JDK 21 and Maven.
 
 ```bash
 git clone https://github.com/THIRU-1074/custom-Http-Server.git
-cd custom-Http-Server/jolt-http-server
-mvn compile exec:java
+cd custom-Http-Server
+mvn -B install -DskipTests
+mvn -pl examples/attendance exec:java
 ```
 
-The demo attendance app starts on port 5007. Note: the repo currently tracks `AttendanceApp.db` and build output; cleanup is part of the governance phase, and the demo credentials in it should be treated as public. To build your own, replace `AttendanceApp` and `NotificationServer` and call your app from `Main`.
+The attendance demo listens on port 5007 on loopback only. Set `BIND_ADDRESS=0.0.0.0` to expose it, and `JWT_SECRET` (at least 32 bytes) to keep tokens valid across restarts. Demo credentials from the old committed database are public, so never reuse them.
 
 ## Resources
 
