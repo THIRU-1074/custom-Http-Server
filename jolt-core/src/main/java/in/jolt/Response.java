@@ -136,6 +136,19 @@ public final class Response {
         }
     }
 
+    /**
+     * Returns a fresh response sharing this mapper and headers, minus the lower-case names given.
+     */
+    public Response copyHeadersExcept(java.util.Set<String> lowerCaseNames) {
+        Response copy = new Response(mapper).secureCookies(secureCookies);
+        for (var h : headers) {
+            if (!lowerCaseNames.contains(h.getKey().toLowerCase(java.util.Locale.ROOT))) {
+                copy.headers.add(h);
+            }
+        }
+        return copy;
+    }
+
     public int statusCode() {
         return status;
     }

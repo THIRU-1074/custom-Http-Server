@@ -185,7 +185,8 @@ class ServerTest {
     }
 
     @Test
-    void middlewareThatThrowsAfterPartialResponseStillGets500() throws IOException {
+    void middlewareThatThrowsAfterPartialResponseGets500WithItsHeadersButNotItsBody()
+            throws IOException {
         App app = Jolt.create();
         app.use(
                 (req, res, next) -> {
@@ -196,7 +197,8 @@ class ServerTest {
         try (var c = new RawClient(server.port())) {
             Reply r = c.get("/");
             assertEquals(500, r.status());
-            assertEquals(null, r.header("X-Partial"));
+            assertEquals("1", r.header("X-Partial"));
+            assertEquals("Internal Server Error", r.text());
         }
     }
 
