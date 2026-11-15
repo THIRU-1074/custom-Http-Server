@@ -68,6 +68,19 @@ public class Router {
         return get(path, (req, res) -> reply(res, fn.apply(req)));
     }
 
+    /** Bodiless typed POST, PUT and PATCH: params and query only, replies like {@link #get}. */
+    public <O> Router post(String path, Typed.Read<O> fn) {
+        return post(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    public <O> Router put(String path, Typed.Read<O> fn) {
+        return put(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    public <O> Router patch(String path, Typed.Read<O> fn) {
+        return patch(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
     /** Typed POST: binds the JSON body to {@code in} (400 if invalid), then writes the result. */
     public <I, O> Router post(String path, Class<I> in, Typed.Write<I, O> fn) {
         return post(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));

@@ -65,6 +65,7 @@ public static App app(TodoRepository repository) {
 |---|---|---|
 | `get(path, p -> result)` | `Typed.Read` | 200 JSON, or 204 for `null` |
 | `post/put/patch(path, Body.class, (p, body) -> result)` | `Typed.Write` | 200 JSON, or 204 for `null`; bad body is 400 |
+| `post/put/patch(path, p -> result)` | `Typed.Read` | as `get`, no body bound |
 | `delete(path, p -> action())` | `Typed.Run` | 204 |
 
 Return `Reply.created(obj)` or `Reply.status(code, obj)` to choose the status (100-599; 1xx, 204 and 304 take no body, else `IllegalArgumentException`). Throw from anywhere: a registered `onError` mapper decides the reply, `HttpException` keeps its status, anything else is a generic 500 with no details.
