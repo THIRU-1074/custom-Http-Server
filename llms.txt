@@ -25,6 +25,7 @@ Static beats :param beats *. Wrong method on a known path gives 405 + Allow. HEA
     res.status(201).json(obj)             // records, Map, List, String, numbers, enums
     res.text("x") res.html("x") res.send(bytes) res.sendFile(Path.of("a.png"))
     res.header("X-A","1")  res.cookie("sid","v")  // cookie default: Path=/; HttpOnly; SameSite=Lax
+    res.redirect("/login")  res.redirect(301, url)   // 301/302/303/307/308; CR/LF rejected
 
 ## Errors
     throw new HttpException(404, "Todo 7 not found");   // plain-text body, that status
