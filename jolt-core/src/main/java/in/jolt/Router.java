@@ -21,6 +21,18 @@ public class Router {
     private final List<Layer> layers = new ArrayList<>();
     private final List<Mount> mounts = new ArrayList<>();
     private final Map<String, RouteTrie<Handler>> routes = new HashMap<>();
+    private final List<Route> defs = new ArrayList<>();
+
+    /** All registered routes, including those of mounted routers, in registration order. */
+    public List<Route> routes() {
+        List<Route> all = new ArrayList<>(defs);
+        for (Mount m : mounts) {
+            for (Route r : m.router.routes()) {
+                all.add(new Route(r.method(), m.prefix + r.path(), r.tool()));
+            }
+        }
+        return List.copyOf(all);
+    }
 
     public Router get(String path, Handler h) {
         return route("GET", path, h);
@@ -70,6 +82,7 @@ public class Router {
 
     private Router route(String method, String path, Handler h) {
         routes.computeIfAbsent(method, k -> new RouteTrie<>()).insert(path, h);
+        defs.add(new Route(method, path.startsWith("/") ? path : "/" + path, null));
         return this;
     }
 
