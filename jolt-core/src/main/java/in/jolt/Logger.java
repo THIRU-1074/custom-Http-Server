@@ -27,17 +27,34 @@ public final class Logger {
                 long ms = (System.nanoTime() - start) / 1_000_000;
                 log.log(
                         System.Logger.Level.INFO,
-                        req.method() + " " + clean(req.path()) + " " + status + " " + ms + "ms");
+                        clean(req.method())
+                                + " "
+                                + clean(req.path())
+                                + " "
+                                + status
+                                + " "
+                                + ms
+                                + "ms");
             }
         };
     }
 
     private static String clean(String s) {
         StringBuilder sb = new StringBuilder(s.length());
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            sb.append(Character.isISOControl(c) ? '?' : c);
-        }
+        s.codePoints().forEach(cp -> sb.appendCodePoint(printable(cp) ? cp : '?'));
         return sb.toString();
+    }
+
+    private static boolean printable(int cp) {
+        return switch (Character.getType(cp)) {
+            case Character.CONTROL,
+                    Character.FORMAT,
+                    Character.UNASSIGNED,
+                    Character.LINE_SEPARATOR,
+                    Character.PARAGRAPH_SEPARATOR,
+                    Character.SURROGATE ->
+                    false;
+            default -> true;
+        };
     }
 }

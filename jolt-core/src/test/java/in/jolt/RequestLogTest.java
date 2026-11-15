@@ -114,6 +114,17 @@ class RequestLogTest {
     }
 
     @Test
+    void unicodeSeparatorsAndOddMethodsAreSanitized() {
+        Capture log = new Capture();
+        JoltTest.of(app(log)).get("/a%E2%80%A8b%E2%80%A9c%C2%85d").send();
+        JoltTest.of(app(log)).call("G\nE" + (char) 0x2028 + "T", "/hi").send();
+        JoltTest.of(app(log)).call("X" + (char) 0x200B + "Y" + (char) 0xFFFF, "/hi").send();
+        assertTrue(log.lines.get(0).startsWith("GET /a?b?c?d "), log.lines.get(0));
+        assertTrue(log.lines.get(1).startsWith("G?E?T /hi "), log.lines.get(1));
+        assertTrue(log.lines.get(2).startsWith("X?Y? /hi "), log.lines.get(2));
+    }
+
+    @Test
     void publicFactoryUsesSystemLogger() {
         App app = Jolt.create();
         app.use(Logger.requests());
