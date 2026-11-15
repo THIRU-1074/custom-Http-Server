@@ -1,0 +1,51 @@
+#!/bin/sh
+# Lints staged jolt-core Java sources, then runs spotless if a root pom.xml exists.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^jolt-core/.*\.java$')
+fail=0
+
+if [ -n "$files" ]; then
+  emoji="$(printf '\360\237')|$(printf '\342[\230-\236]')"
+  for f in $files; do
+    content=$(git show ":$f")
+    report() {
+      printf '%s\n' "$content" | LC_ALL=C grep -nE "$1" | sed "s|^|$f:|" | sed "s|\$|   <- $2|"
+    }
+    out=""
+    out="$out
+$(report 'System\.out\.print' 'System.out is banned; use System.Logger')"
+    out="$out
+$(report 'printStackTrace' 'printStackTrace is banned; use System.Logger')"
+    out="$out
+$(report '//[[:space:]]*Step' 'narration comment is banned')"
+    out="$out
+$(report "$emoji" 'emoji is banned')"
+    todo=$(printf '%s\n' "$content" | grep -nE 'TODO' | grep -vE '#[0-9]+' | sed "s|^|$f:|" | sed 's|$|   <- TODO needs an issue ref like #12|')
+    out="$out
+$todo"
+    if [ -n "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
+      printf '%s\n' "$out" | sed '/^$/d' >&2
+      fail=1
+    fi
+  done
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "pre-commit: lint failed" >&2
+  exit 1
+fi
+
+if [ ! -f pom.xml ]; then
+  echo "pre-commit: no root pom.xml yet, skipping spotless" >&2
+  exit 0
+fi
+if ! command -v mvn >/dev/null 2>&1; then
+  echo "pre-commit: mvn not found, skipping spotless" >&2
+  exit 0
+fi
+
+mvn -q spotless:check || { echo "pre-commit: spotless:check failed (run mvn spotless:apply)" >&2; exit 1; }
+exit 0
