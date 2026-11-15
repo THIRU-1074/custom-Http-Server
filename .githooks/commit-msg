@@ -1,0 +1,25 @@
+#!/bin/sh
+# Enforces Conventional Commits and rejects emojis. Arg 1: commit message file.
+
+msg_file="$1"
+subject=$(sed -n '1p' "$msg_file")
+
+case "$subject" in
+  Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;;
+esac
+
+types='feat|fix|refactor|test|docs|chore|perf|build|ci'
+if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\\([a-z0-9._/-]+\\))?!?: .{1,72}\$"; then
+  echo "commit-msg: invalid subject: $subject" >&2
+  echo "  expected: type(scope): subject  (max 72 chars)" >&2
+  echo "  types: feat fix refactor test docs chore perf build ci" >&2
+  exit 1
+fi
+
+emoji="$(printf '\360\237')|$(printf '\342[\230-\236]')"
+if LC_ALL=C grep -Eq "$emoji" "$msg_file"; then
+  echo "commit-msg: emojis are not allowed in commit messages" >&2
+  exit 1
+fi
+
+exit 0
