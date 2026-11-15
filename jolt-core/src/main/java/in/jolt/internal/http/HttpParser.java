@@ -85,7 +85,15 @@ public final class HttpParser {
             if (colon <= 0) {
                 throw bad("Malformed header line");
             }
-            String name = lines[i].substring(0, colon).trim();
+            char first = lines[i].charAt(0);
+            if (first == ' ' || first == '	') {
+                throw bad("Obsolete line folding");
+            }
+            char last = lines[i].charAt(colon - 1);
+            if (last == ' ' || last == '	') {
+                throw bad("Whitespace before header colon");
+            }
+            String name = lines[i].substring(0, colon);
             String value = lines[i].substring(colon + 1).trim();
             String sep = name.equalsIgnoreCase("Cookie") ? "; " : ", ";
             headers.merge(name, value, (a, b) -> a + sep + b);
@@ -132,6 +140,12 @@ public final class HttpParser {
     private static byte[] readBody(InputStream in, Map<String, String> headers, int max)
             throws IOException {
         String te = headers.get("Transfer-Encoding");
+        if (te != null && headers.containsKey("Content-Length")) {
+            throw bad("Content-Length with Transfer-Encoding");
+        }
+        if (te != null && headers.containsKey("Content-Length")) {
+            throw bad("Content-Length with Transfer-Encoding");
+        }
         if (te != null) {
             if (!te.equalsIgnoreCase("chunked")) {
                 throw new HttpException(
