@@ -34,6 +34,7 @@ public final class Response {
 
     /** Sets a header, replacing any existing value for the same name. */
     public Response header(String name, String value) {
+        checkHeader(name, value);
         headers.removeIf(h -> h.getKey().equalsIgnoreCase(name));
         typeExplicit |= name.equalsIgnoreCase("Content-Type");
         headers.add(Map.entry(name, value));
@@ -47,6 +48,8 @@ public final class Response {
 
     /** Adds one {@code Set-Cookie} header with the given attributes. */
     public Response cookie(String name, String value, String attributes) {
+        checkHeader(name, value);
+        checkHeader("Set-Cookie", attributes == null ? "" : attributes);
         String attrs = attributes == null || attributes.isBlank() ? "" : "; " + attributes;
         headers.add(Map.entry("Set-Cookie", name + "=" + value + attrs));
         return this;
@@ -99,6 +102,24 @@ public final class Response {
     /** True once a body has been set. */
     public boolean isSent() {
         return sent;
+    }
+
+    private static void checkHeader(String name, String value) {
+        if (name == null || name.isEmpty() || value == null) {
+            throw new IllegalArgumentException("Header name and value are required");
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c <= ' ' || c == ':' || c >= 127) {
+                throw new IllegalArgumentException("Illegal character in header name");
+            }
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\r' || c == '\n' || c == 0) {
+                throw new IllegalArgumentException("Illegal character in header value");
+            }
+        }
     }
 
     private Response send(byte[] bytes, String defaultType) {

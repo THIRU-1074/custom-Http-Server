@@ -255,6 +255,26 @@ class ServerTest {
     }
 
     @Test
+    void crLfInResponseHeadersAndCookiesIsRejected() throws IOException {
+        App app = Jolt.create();
+        app.get("/go", (req, res) -> res.header("Location", req.query("to")).status(302));
+        app.get("/c", (req, res) -> res.cookie("sid", req.query("v")).text("ok"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.get("/go?to=%0d%0aSet-Cookie:%20evil=1");
+            assertEquals(500, r.status());
+            assertEquals(null, r.header("Set-Cookie"));
+            assertEquals(500, c.get("/c?v=a%0d%0aX:%20y").status());
+            assertEquals(200, c.get("/c?v=abc").status());
+        }
+        Response res = new Response(JoltConfig.defaults().jsonMapper());
+        assertThrows(IllegalArgumentException.class, () -> res.header("X\r\nY", "v"));
+        assertThrows(IllegalArgumentException.class, () -> res.header("X:Y", "v"));
+        assertThrows(IllegalArgumentException.class, () -> res.header("X", "a\nb"));
+        assertThrows(IllegalArgumentException.class, () -> res.cookie("a", "b", "Path=/\r\nX: y"));
+    }
+
+    @Test
     void responseHelpersSetContentTypes() throws IOException {
         App app = Jolt.create();
         app.get("/html", (req, res) -> res.html("<p>x</p>"));
