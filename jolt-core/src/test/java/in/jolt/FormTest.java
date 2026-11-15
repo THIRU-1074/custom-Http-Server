@@ -64,6 +64,42 @@ class FormTest {
         assertEquals(400, e.status());
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "application/x-www-form-urlencodedfoo",
+                "application/x-www-form-urlencoded-x",
+                "xapplication/x-www-form-urlencoded"
+            })
+    void mediaTypeIsComparedExactly(String type) {
+        assertEquals(Map.of(), req(type, "a=1").form());
+    }
+
+    @Test
+    void parametersAreIgnoredForTheMatchAndSpacesTolerated() {
+        assertEquals(Map.of("a", "1"), req(FORM + " ; boundary=x", "a=1").form());
+    }
+
+    @Test
+    void honoursACharsetParameter() {
+        Request r = req(FORM + "; charset=\"ISO-8859-1\"", "n=Z%FCrich");
+        assertEquals("Zürich", r.form().get("n"));
+    }
+
+    @Test
+    void defaultsToUtf8() {
+        assertEquals("Zürich", req(FORM, "n=Z%C3%BCrich").form().get("n"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"nope-9", "bad charset!"})
+    void unsupportedCharsetIs415(String cs) {
+        HttpException e =
+                assertThrows(
+                        HttpException.class, () -> req(FORM + "; charset=" + cs, "a=1").form());
+        assertEquals(415, e.status());
+    }
+
     @Test
     void worksThroughTheTestClient() {
         App app = Jolt.create();

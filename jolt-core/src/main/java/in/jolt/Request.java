@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.Codec;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
@@ -77,19 +78,42 @@ public final class Request {
 
     /**
      * Fields of an {@code application/x-www-form-urlencoded} body (first value wins), or an empty
-     * map for any other content type. The body is already capped by {@code maxBodyBytes}.
+     * map for any other media type. Honours a {@code charset} parameter, default UTF-8. The body is
+     * already capped by {@code maxBodyBytes}.
      *
-     * @throws HttpException 400 on a malformed percent-escape
+     * @throws HttpException 400 on a malformed percent-escape, 415 on an unsupported charset
      */
     public Map<String, String> form() {
         String type = headers.getOrDefault("Content-Type", "");
-        if (!type.regionMatches(true, 0, "application/x-www-form-urlencoded", 0, 33)) {
+        int semi = type.indexOf(';');
+        String media = (semi < 0 ? type : type.substring(0, semi)).strip();
+        if (!media.equalsIgnoreCase("application/x-www-form-urlencoded")) {
             return Map.of();
         }
         if (form == null) {
-            form = parsePairs(text(), "&", true, true);
+            Charset cs = charset(semi < 0 ? "" : type.substring(semi + 1));
+            form = parsePairs(new String(body, cs), "&", true, true, cs);
         }
         return Collections.unmodifiableMap(form);
+    }
+
+    private static Charset charset(String params) {
+        for (String param : params.split(";")) {
+            int eq = param.indexOf('=');
+            if (eq > 0 && param.substring(0, eq).strip().equalsIgnoreCase("charset")) {
+                String name = param.substring(eq + 1).strip();
+                if (name.length() >= 2 && name.startsWith("\"") && name.endsWith("\"")) {
+                    name = name.substring(1, name.length() - 1);
+                }
+                try {
+                    return Charset.forName(name);
+                } catch (IllegalArgumentException e) {
+                    throw new HttpException(
+                            HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported charset");
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
     }
 
     /** Value of a cookie from the {@code Cookie} header, or {@code null}. */
@@ -159,6 +183,11 @@ public final class Request {
 
     private static Map<String, String> parsePairs(
             String s, String sep, boolean plusAsSpace, boolean strict) {
+        return parsePairs(s, sep, plusAsSpace, strict, StandardCharsets.UTF_8);
+    }
+
+    private static Map<String, String> parsePairs(
+            String s, String sep, boolean plusAsSpace, boolean strict, Charset cs) {
         Map<String, String> out = new LinkedHashMap<>();
         if (s.isEmpty()) {
             return out;
@@ -172,8 +201,8 @@ public final class Request {
             String k = eq < 0 ? pair : pair.substring(0, eq);
             String v = eq < 0 ? "" : pair.substring(eq + 1);
             try {
-                k = Codec.percentDecode(k, plusAsSpace);
-                v = Codec.percentDecode(v, plusAsSpace);
+                k = Codec.percentDecode(k, plusAsSpace, cs);
+                v = Codec.percentDecode(v, plusAsSpace, cs);
             } catch (IllegalArgumentException e) {
                 if (strict) {
                     throw new HttpException(HttpStatus.BAD_REQUEST, "Malformed form encoding");
