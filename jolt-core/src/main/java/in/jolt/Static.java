@@ -17,15 +17,20 @@ public final class Static {
      * is answered 403; unknown files fall through to the next handler.
      */
     public static Middleware serve(String urlPrefix, Path root) {
+        String prefix =
+                urlPrefix.endsWith("/")
+                        ? urlPrefix.substring(0, urlPrefix.length() - 1)
+                        : urlPrefix;
         return (req, res, next) -> {
             String path = req.path();
             boolean read = req.method().equals("GET") || req.method().equals("HEAD");
-            if (!read || !path.startsWith(urlPrefix)) {
+            boolean inside = path.equals(prefix) || path.startsWith(prefix + "/");
+            if (!read || !inside) {
                 next.run();
                 return;
             }
             try {
-                res.sendFile(root, path.substring(urlPrefix.length()));
+                res.sendFile(root, path.substring(prefix.length()));
             } catch (HttpException e) {
                 if (e.status() != HttpStatus.NOT_FOUND.code()) {
                     throw e;
