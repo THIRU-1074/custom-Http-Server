@@ -49,7 +49,8 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     /**
      * Maps exceptions of {@code type} to a reply. The most specific registered class in the
      * exception's hierarchy wins, whatever the registration order. Unmapped exceptions keep the
-     * default handling.
+     * default handling. An {@link HttpException} is mapped only by a mapper registered for {@code
+     * HttpException} or a subclass, never by a broader type such as {@code RuntimeException}.
      */
     public <E extends Throwable> App onError(Class<E> type, ErrorMapper<E> mapper) {
         mappers.put(type, mapper);
@@ -59,7 +60,11 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     @Override
     @SuppressWarnings("unchecked")
     public Reply<?> mapError(Throwable t) {
+        boolean http = t instanceof HttpException;
         for (Class<?> c = t.getClass(); c != null; c = c.getSuperclass()) {
+            if (http && !HttpException.class.isAssignableFrom(c)) {
+                break;
+            }
             ErrorMapper<Throwable> m = (ErrorMapper<Throwable>) mappers.get(c);
             if (m != null) {
                 return m.map(t);

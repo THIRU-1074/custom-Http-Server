@@ -165,6 +165,12 @@ public final class ConnectionHandler implements Runnable {
             if (reply == null) {
                 return null;
             }
+            if (!(t instanceof HttpException)) {
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "Mapped exception " + t.getClass().getName(),
+                        t);
+            }
             Response err = original.copyHeadersExcept(DROPPED_ON_ERROR).status(reply.status());
             return reply.body() == null ? err : err.json(reply.body());
         } catch (RuntimeException e) {
