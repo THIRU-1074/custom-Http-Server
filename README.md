@@ -13,7 +13,7 @@ Jolt.GET("/hello/:name", (req, res) -> {
 Jolt.listen(8080, () -> System.out.println("up"));
 ```
 
-> Status: **v0.1.0 (proof of concept)**. Jolt works and is load-tested, but it is not yet a library you can import. See [Where it is going](#where-it-is-going).
+> Status: **v0.1.0 (proof of concept)**. Jolt works for the demo apps and survived a load test, but it is not yet a library you can import: the API below is package-private today, so the snippet only compiles inside the `in.jolt` package. Several known bugs are listed in [Where it is going](#where-it-is-going).
 
 ## The story
 
@@ -38,11 +38,11 @@ Full details with evidence for each item are in [docs/KRA.md](docs/KRA.md).
 
 ## What works today
 
-- **Express-like API:** `GET`, `POST`, `PUT`, `ALL`, `:param` path parameters and query parameters.
+- **Express-like API:** `GET`, `POST`, `ALL`, `:param` path parameters and query parameters. `PUT` is registered but buggy, and only the first handler per route runs (see known limitations).
 - **Routers:** build separate route groups and mount them with `Jolt.use("/auth", router)`.
 - **Auth:** HTTP Basic (database-backed) and JWT (HS256).
 - **Content:** JSON, HTML, text and images, with `Content-Type` and `Content-Length` handled for you.
-- **HTTP/1.1:** keep-alive, pipelined requests answered in order, binary request bodies.
+- **HTTP/1.1:** keep-alive, pipelined requests answered in order (with unsynchronized shared state, so not race-free), and binary request bodies for small payloads.
 - **Two demo apps:** an attendance system and a webhook notification service.
 
 ## Architecture (v0.1.0)
@@ -93,7 +93,7 @@ A review of v0.1.0 found real problems (15 are listed in [docs/KRA.md](docs/KRA.
 
 ## Getting started
 
-Requirements: JDK 21 and Maven.
+Requirements: JDK 24 (what `pom.xml` targets today; v1 moves to 21 LTS) and Maven.
 
 ```bash
 git clone https://github.com/THIRU-1074/custom-Http-Server.git
@@ -101,7 +101,7 @@ cd custom-Http-Server/jolt-http-server
 mvn compile exec:java
 ```
 
-The demo attendance app starts on port 5007. To build your own, replace `AttendanceApp` and `NotificationServer` and call your app from `Main`.
+The demo attendance app starts on port 5007. Note: the repo currently tracks `AttendanceApp.db` and build output; cleanup is part of the governance phase, and the demo credentials in it should be treated as public. To build your own, replace `AttendanceApp` and `NotificationServer` and call your app from `Main`.
 
 ## Resources
 
