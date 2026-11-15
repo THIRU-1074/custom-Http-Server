@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
@@ -29,9 +28,6 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
-
-    private static final Set<String> DROPPED_ON_ERROR =
-            Set.of("content-type", "content-length", "transfer-encoding", "set-cookie");
 
     private final Socket socket;
     private final JoltConfig config;
@@ -157,17 +153,16 @@ public final class ConnectionHandler implements Runnable {
                             "Mapped exception on " + req.method() + " " + req.path(),
                             t);
                 }
-                Response err = res.copyHeadersExcept(DROPPED_ON_ERROR).status(reply.status());
-                return reply.body() == null ? err : err.json(reply.body());
+                return Replies.error(res, reply);
             }
         } catch (HttpException e) {
-            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
         } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
             return internalError(res);
         }
         if (t instanceof HttpException e) {
-            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
         }
         LOG.log(
                 System.Logger.Level.ERROR,
@@ -177,13 +172,7 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private static Response internalError(Response res) {
-        return errorResponse(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
-    }
-
-    /** Builds an error reply that keeps the headers middleware set but none of the body framing. */
-    private static Response errorResponse(Response original, int status, String message) {
-        Response err = original.copyHeadersExcept(DROPPED_ON_ERROR);
-        return err.status(status).text(message);
+        return Replies.error(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
     }
 
     private static void writeError(OutputStream out, Response res, int status, String message)

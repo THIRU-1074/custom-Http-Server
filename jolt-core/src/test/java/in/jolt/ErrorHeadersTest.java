@@ -2,6 +2,7 @@ package in.jolt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import in.jolt.RawClient.Reply;
 import java.io.IOException;
@@ -60,7 +61,7 @@ class ErrorHeadersTest {
         assertEquals("nosniff", r.header("X-Content-Type-Options"));
         assertEquals("text/plain; charset=utf-8", r.header("Content-Type"));
         assertEquals("4", r.header("Content-Length"));
-        assertNull(r.header("Set-Cookie"));
+        assertTrue(r.header("Set-Cookie").startsWith("sid=abc"));
         assertNull(r.header("Transfer-Encoding"));
     }
 
@@ -70,6 +71,6 @@ class ErrorHeadersTest {
         assertEquals(500, r.status());
         assertEquals("https://a.io", r.header("Access-Control-Allow-Origin"));
         assertEquals("nosniff", r.header("X-Content-Type-Options"));
-        assertNull(r.header("Set-Cookie"));
+        assertTrue(r.header("Set-Cookie").startsWith("sid=abc"));
     }
 }

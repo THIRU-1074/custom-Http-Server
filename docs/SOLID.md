@@ -69,6 +69,10 @@ public static App app(TodoRepository repository) {
 
 Return `Reply.created(obj)` or `Reply.status(code, obj)` to choose the status (100-599; 1xx, 204 and 304 take no body, else `IllegalArgumentException`). Throw from anywhere: a registered `onError` mapper decides the reply, `HttpException` keeps its status, anything else is a generic 500 with no details.
 
+## Headers on error replies
+
+Mapped, `HttpException` and generic 500 replies all keep the headers middleware already set (CORS, security headers, `Set-Cookie`), except `Content-Type`, `Content-Length` and `Transfer-Encoding`, which the error body sets. Typed success replies and error replies share one helper, so a `Reply` is written the same way in both.
+
 ## What not to do
 
 - **Fat lambdas.** Do not put validation, queries and mapping inside a route lambda. Call a service and return its result.

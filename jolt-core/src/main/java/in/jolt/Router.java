@@ -1,5 +1,6 @@
 package in.jolt;
 
+import in.jolt.internal.http.Replies;
 import in.jolt.internal.routing.RouteTrie;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -94,10 +95,7 @@ public class Router {
         if (out == null) {
             res.status(HttpStatus.NO_CONTENT);
         } else if (out instanceof Reply<?> r) {
-            res.status(r.status());
-            if (r.body() != null) {
-                res.json(r.body());
-            }
+            Replies.write(res, r);
         } else {
             res.json(out);
         }
