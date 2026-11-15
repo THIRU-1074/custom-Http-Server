@@ -289,6 +289,34 @@ class ServerTest {
     }
 
     @Test
+    void corsIsOffByDefaultAndOptInAllowsOnlyTheNamedOrigin() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.send("GET / HTTP/1.1\r\nOrigin: https://a.io\r\n\r\n").read();
+            assertEquals(null, r.header("Access-Control-Allow-Origin"));
+        }
+        server.close();
+        App app = echoApp(JoltConfig.defaults());
+        app.use(Cors.allow("https://a.io"));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply ok = c.send("GET / HTTP/1.1\r\nOrigin: https://a.io\r\n\r\n").read();
+            assertEquals("https://a.io", ok.header("Access-Control-Allow-Origin"));
+            assertEquals("hello", ok.text());
+            Reply other = c.send("GET / HTTP/1.1\r\nOrigin: https://b.io\r\n\r\n").read();
+            assertEquals(null, other.header("Access-Control-Allow-Origin"));
+            Reply pre =
+                    c.send(
+                                    "OPTIONS / HTTP/1.1\r\nOrigin: https://a.io\r\n"
+                                            + "Access-Control-Request-Method: POST\r\n\r\n")
+                            .read();
+            assertEquals(204, pre.status());
+            assertEquals("https://a.io", pre.header("Access-Control-Allow-Origin"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> Cors.allow("*"));
+    }
+
+    @Test
     void responseHelpersSetContentTypes() throws IOException {
         App app = Jolt.create();
         app.get("/html", (req, res) -> res.html("<p>x</p>"));
