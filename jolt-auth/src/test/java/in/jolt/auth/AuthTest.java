@@ -133,6 +133,41 @@ class AuthTest {
     void jwtRequiresACallerSuppliedSecret() {
         assertThrows(NullPointerException.class, () -> JwtAuth.hs256(null));
         assertThrows(IllegalArgumentException.class, () -> JwtAuth.hs256("  "));
+        assertThrows(IllegalArgumentException.class, () -> JwtAuth.hs256("a".repeat(31)));
+        JwtAuth.hs256("a".repeat(32));
+    }
+
+    @Test
+    void jwtPinsHs256AndRequiresExpiry() throws Exception {
+        JwtAuth auth = JwtAuth.hs256(SECRET);
+        String noExp =
+                com.auth0
+                        .jwt
+                        .JWT
+                        .create()
+                        .withSubject("x")
+                        .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256(SECRET));
+        String hs512 =
+                com.auth0
+                        .jwt
+                        .JWT
+                        .create()
+                        .withSubject("x")
+                        .withExpiresAt(java.util.Date.from(java.time.Instant.now().plusSeconds(60)))
+                        .sign(com.auth0.jwt.algorithms.Algorithm.HMAC512(SECRET));
+        String none =
+                com.auth0
+                        .jwt
+                        .JWT
+                        .create()
+                        .withSubject("x")
+                        .withExpiresAt(java.util.Date.from(java.time.Instant.now().plusSeconds(60)))
+                        .sign(com.auth0.jwt.algorithms.Algorithm.none());
+        for (String token : new String[] {noExp, hs512, none}) {
+            Response res = res();
+            assertFalse(run(auth.middleware(), req("Bearer " + token), res));
+            assertEquals(401, res.statusCode());
+        }
     }
 
     @Test
