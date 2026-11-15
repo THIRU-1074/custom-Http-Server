@@ -1,5 +1,6 @@
 package in.jolt;
 
+import in.jolt.internal.http.Replies;
 import in.jolt.internal.routing.RouteTrie;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -62,6 +63,57 @@ public class Router {
         return route("OPTIONS", path, h);
     }
 
+    /** Typed GET: the result is written as JSON, {@code null} gives 204. */
+    public <O> Router get(String path, Typed.Read<O> fn) {
+        return get(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    /** Bodiless typed POST, PUT and PATCH: params and query only, replies like {@link #get}. */
+    public <O> Router post(String path, Typed.Read<O> fn) {
+        return post(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    public <O> Router put(String path, Typed.Read<O> fn) {
+        return put(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    public <O> Router patch(String path, Typed.Read<O> fn) {
+        return patch(path, (req, res) -> reply(res, fn.apply(req)));
+    }
+
+    /** Typed POST: binds the JSON body to {@code in} (400 if invalid), then writes the result. */
+    public <I, O> Router post(String path, Class<I> in, Typed.Write<I, O> fn) {
+        return post(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+    }
+
+    public <I, O> Router put(String path, Class<I> in, Typed.Write<I, O> fn) {
+        return put(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+    }
+
+    public <I, O> Router patch(String path, Class<I> in, Typed.Write<I, O> fn) {
+        return patch(path, (req, res) -> reply(res, fn.apply(req, req.body(in))));
+    }
+
+    /** Typed DELETE: runs {@code fn} and answers 204. */
+    public Router delete(String path, Typed.Run fn) {
+        return delete(
+                path,
+                (req, res) -> {
+                    fn.run(req);
+                    res.status(HttpStatus.NO_CONTENT);
+                });
+    }
+
+    private static void reply(Response res, Object out) {
+        if (out == null) {
+            res.status(HttpStatus.NO_CONTENT);
+        } else if (out instanceof Reply<?> r) {
+            Replies.write(res, r);
+        } else {
+            res.json(out);
+        }
+    }
+
     /** Tags the most recently registered route as an MCP tool with this description. */
     public Router tool(String description) {
         if (defs.isEmpty()) {
@@ -89,6 +141,19 @@ public class Router {
         mounts.add(new Mount(normalize(prefix), router));
         mounts.sort(Comparator.comparingInt((Mount m) -> m.prefix.length()).reversed());
         return this;
+    }
+
+    /** Registers {@code module}'s routes on this router. */
+    public Router module(RouteModule module) {
+        module.register(this);
+        return this;
+    }
+
+    /** Registers {@code module}'s routes on a new router mounted under {@code prefix}. */
+    public Router module(String prefix, RouteModule module) {
+        Router sub = new Router();
+        module.register(sub);
+        return use(prefix, sub);
     }
 
     private Router route(String method, String path, Handler h) {

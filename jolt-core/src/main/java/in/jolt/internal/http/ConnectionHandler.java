@@ -3,6 +3,7 @@ package in.jolt.internal.http;
 import in.jolt.HttpException;
 import in.jolt.HttpStatus;
 import in.jolt.JoltConfig;
+import in.jolt.Reply;
 import in.jolt.Request;
 import in.jolt.Response;
 import java.io.BufferedInputStream;
@@ -11,7 +12,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
@@ -20,12 +20,14 @@ public final class ConnectionHandler implements Runnable {
     @FunctionalInterface
     public interface Dispatcher {
         void dispatch(Request req, Response res) throws Exception;
+
+        /** The reply a registered mapper gives for {@code t}, or {@code null} if none applies. */
+        default Reply<?> mapError(Throwable t) {
+            return null;
+        }
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
-
-    private static final Set<String> DROPPED_ON_ERROR =
-            Set.of("content-type", "content-length", "transfer-encoding", "set-cookie");
 
     private final Socket socket;
     private final JoltConfig config;
@@ -144,22 +146,41 @@ public final class ConnectionHandler implements Runnable {
         try {
             dispatcher.dispatch(req, res);
             return res;
-        } catch (HttpException e) {
-            return errorResponse(res, e.status(), String.valueOf(e.getMessage()));
         } catch (Throwable t) {
-            LOG.log(
-                    System.Logger.Level.ERROR,
-                    "Unhandled exception on " + req.method() + " " + req.path(),
-                    t);
-            return errorResponse(
-                    res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
+            return failure(dispatcher, res, req, t);
         }
     }
 
-    /** Builds an error reply that keeps the headers middleware set but none of the body framing. */
-    private static Response errorResponse(Response original, int status, String message) {
-        Response err = original.copyHeadersExcept(DROPPED_ON_ERROR);
-        return err.status(status).text(message);
+    private static Response failure(Dispatcher dispatcher, Response res, Request req, Throwable t) {
+        try {
+            Reply<?> reply = dispatcher.mapError(t);
+            if (reply != null) {
+                if (!(t instanceof HttpException)) {
+                    LOG.log(
+                            System.Logger.Level.WARNING,
+                            "Mapped exception on " + req.method() + " " + req.path(),
+                            t);
+                }
+                return Replies.error(res, reply);
+            }
+        } catch (HttpException e) {
+            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+        } catch (Throwable e) {
+            LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
+            return internalError(res);
+        }
+        if (t instanceof HttpException e) {
+            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+        }
+        LOG.log(
+                System.Logger.Level.ERROR,
+                "Unhandled exception on " + req.method() + " " + req.path(),
+                t);
+        return internalError(res);
+    }
+
+    private static Response internalError(Response res) {
+        return Replies.error(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
     }
 
     private static void writeError(OutputStream out, Response res, int status, String message)

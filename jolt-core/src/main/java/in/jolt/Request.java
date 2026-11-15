@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /** An incoming HTTP request. Created by the server; public so tests can build one. */
-public final class Request {
+public final class Request implements Params {
 
     private final String method;
     private final String path;
@@ -72,12 +72,12 @@ public final class Request {
         return headers.get(name);
     }
 
-    /** Value of a {@code :name} path parameter, or {@code null}. */
+    @Override
     public String param(String name) {
         return params.get(name);
     }
 
-    /** First value of a query parameter, or {@code null}. */
+    @Override
     public String query(String name) {
         return query().get(name);
     }

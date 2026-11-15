@@ -6,11 +6,23 @@ import in.jolt.internal.routing.Suggest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
 
     private final JoltConfig config;
+
+    private record Entry(long order, ErrorMapper<?> mapper) {}
+
+    private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
+    private final AtomicLong registrations = new AtomicLong();
 
     App(JoltConfig config) {
         this.config = config;
@@ -41,6 +53,52 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
                                     + req.path()
                                     + (hint == null ? "" : ", did you mean " + hint + "?"));
                 });
+    }
+
+    /**
+     * Maps exceptions of {@code type} (a class or an interface) to a reply. The registered type
+     * closest to the exception's class, counting superclass and interface steps breadth-first,
+     * wins; ties go to the first registered. Safe to call after {@link #listen}, though registering
+     * before it is the norm. Unmapped exceptions keep the default handling. An {@link
+     * HttpException} is mapped only by a mapper registered for {@code HttpException} or a subclass,
+     * never by a broader type such as {@code RuntimeException}.
+     */
+    public <E> App onError(Class<E> type, ErrorMapper<E> mapper) {
+        mappers.put(type, new Entry(registrations.getAndIncrement(), mapper));
+        return this;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Reply<?> mapError(Throwable t) {
+        boolean http = t instanceof HttpException;
+        Set<Class<?>> seen = new HashSet<>();
+        List<Class<?>> level = List.of(t.getClass());
+        while (!level.isEmpty()) {
+            Entry best = null;
+            for (Class<?> c : level) {
+                Entry e = http && !HttpException.class.isAssignableFrom(c) ? null : mappers.get(c);
+                if (e != null && (best == null || e.order < best.order)) {
+                    best = e;
+                }
+            }
+            if (best != null) {
+                return ((ErrorMapper<Object>) best.mapper).map(t);
+            }
+            List<Class<?>> next = new ArrayList<>();
+            for (Class<?> c : level) {
+                if (c.getSuperclass() != null && seen.add(c.getSuperclass())) {
+                    next.add(c.getSuperclass());
+                }
+                for (Class<?> i : c.getInterfaces()) {
+                    if (seen.add(i)) {
+                        next.add(i);
+                    }
+                }
+            }
+            level = next;
+        }
+        return null;
     }
 
     /** Minimal OpenAPI 3.1 JSON describing the registered routes. */

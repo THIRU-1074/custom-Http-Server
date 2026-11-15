@@ -129,3 +129,4 @@ The attendance demo listens on port 5007 on loopback only. Set `JOLT_BIND_ADDRES
 - [MDN HTTP docs](https://developer.mozilla.org/en-US/docs/Web/HTTP), the best reference for the protocol.
 - [jwt.io](https://jwt.io/) for debugging tokens.
 - Postman for API and load testing.
+- [SOLID with Jolt](docs/SOLID.md), dependency inversion and typed handlers without a DI container.
