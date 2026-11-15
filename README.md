@@ -122,7 +122,7 @@ mvn -B install -DskipTests
 mvn -pl examples/attendance exec:java
 ```
 
-The attendance demo listens on port 5007 on loopback only. Set `BIND_ADDRESS=0.0.0.0` to expose it, and `JWT_SECRET` (at least 32 bytes) to keep tokens valid across restarts. Demo credentials from the old committed database are public, so never reuse them.
+The attendance demo listens on port 5007 on loopback only. Set `JOLT_BIND_ADDRESS=0.0.0.0` to expose it, and `JWT_SECRET` (at least 32 bytes) to keep tokens valid across restarts. Demo credentials from the old committed database are public, so never reuse them.
 
 ## Resources
 

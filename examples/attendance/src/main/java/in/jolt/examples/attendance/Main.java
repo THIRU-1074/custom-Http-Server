@@ -25,8 +25,7 @@ public final class Main {
             return;
         }
         DBConnection.init();
-        String bind = System.getenv("BIND_ADDRESS");
-        var config = bind == null ? JoltConfig.defaults() : JoltConfig.defaults().bindAddress(bind);
+        var config = JoltConfig.fromEnv();
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 5007;
         var server = AttendanceApp.create(JwtAuth.hs256(secret), config).listen(port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
