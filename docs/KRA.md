@@ -1,0 +1,109 @@
+# Jolt v0.1.0: Key Result Areas
+
+Baseline: tag `v0.1.0` (commit `e4361a2`), built 14 Jun – 21 Jul 2025.
+Scope: a from-scratch HTTP/1.1 server and Express-style framework in Java, using only `java.net.ServerSocket` (no servlet container and no Netty).
+
+| # | Key Result Area | Outcome |
+|---|---|---|
+| 1 | HTTP/1.1 protocol engine | Parses requests from raw TCP bytes and writes compliant responses |
+| 2 | Express-style routing | `GET/POST/PUT/ALL` handlers, path and query params, mountable routers |
+| 3 | Authentication | HTTP Basic (DB-backed) and JWT (HS256) issue and verify |
+| 4 | Content handling | JSON, HTML, plain text and image bodies, in and out |
+| 5 | Concurrency and connection management | Concurrent clients, keep-alive, ordered pipelined responses |
+| 6 | Real applications on the framework | Attendance app and webhook broadcast service |
+| 7 | Load-tested | 50 VUs for 1 min, 0% errors |
+
+---
+
+## 1. HTTP/1.1 protocol engine
+
+- **Built:** request-line, header and body parsing directly from the socket `InputStream`, and response serialization with status line, headers, `Content-Length` and body.
+- **Iteration:** the first parser read characters and broke on binary bodies. It was rewritten to parse **bytes**: it finds `\r\n\r\n`, decodes headers as ISO-8859-1 and keeps the body as raw `byte[]`.
+- **Evidence:** `RequestHandler.parseRequest()`, `Response.serialize()`. Commits `e4361a2` (byte parser) and `3e0acb1` (case-insensitive header normalization).
+- **Outcome:** handles HTTP/1.0 and 1.1 clients (browsers, Postman, curl), including binary uploads.
+
+## 2. Express-style routing
+
+- **Built:**
+  - `Jolt.GET/POST/PUT/ALL(path, handlers...)`.
+  - `:param` path segments, and query-string parsing into `req.urlQueryParams`.
+  - `Router` instances mounted with `Jolt.use("/prefix", router)`.
+- **Why it matters:** routing looks like Express, so a student who knows Node can read and write it with no Spring-style annotations, beans or container.
+- **Evidence:** `Jolt.java`, `Router.java`. Commits `5f34fc9` (routers), `7dbab60` (path and query params), `9015be1` (handler fix).
+- **Outcome:** teams can build separate routers (for example `/auth`) and combine them in one app.
+
+## 3. Authentication
+
+- **Built:**
+  - HTTP Basic: decodes `Authorization: Basic`, checks credentials in SQLite through a parameterized `PreparedStatement` (no SQL injection), and returns `WWW-Authenticate` on 401.
+  - JWT: issues HS256 tokens with `sub`, `role`, `iat` and `exp` claims, and verifies them. Expired, bad-signature and malformed tokens get distinct error reasons.
+  - `Jolt.authorizeClient(req, res, realm)` guards a route in one line.
+- **Evidence:** `Auth.java`, `Request.authorize()`. Commits `864883f`, `4de6d8d`, `a830b03`.
+
+## 4. Content handling
+
+- **Built:** a polymorphic `Content` hierarchy (`JSON`, `text`, `html`, `image`). It sets `Content-Type` automatically through Java 21 pattern-matching `switch`, and computes `Content-Length` from the serialized bytes.
+- **Evidence:** `Content.java`, `Response.serialize()`.
+- **Outcome:** routes serve HTML pages, a favicon and JSON APIs, and accept JSON and PNG/JPEG uploads.
+
+## 5. Concurrency and connection management
+
+- **Built:**
+  - A thread per client connection.
+  - A request-handler thread per request.
+  - A per-connection responder thread that drains a **response queue in arrival order**, so pipelined keep-alive requests are answered in order.
+  - Socket read timeout of 120 s.
+- **Evidence:** `ClientConnection.java`, `ClientResponder.java`. Commits `b849db1` (multithreading), `b3399e4` (multi-socket fix).
+- **Outcome:** several browsers and Postman runners served at the same time with consistent response order.
+
+## 6. Real applications built on Jolt
+
+- **Attendance app** (`AttendanceApp.java`): an HTML UI, a login router under `/auth`, JWT issue on login, and a SQLite credential store.
+- **Webhook notification service** (`NotificationServer.java`): authenticated webhook URL registration, and a broadcast of company events to every registered URL through `java.net.http.HttpClient`.
+- **Evidence:** commit `33cfd49`.
+- **Outcome:** the framework is proven on two different kinds of apps, a browser-facing app and a server-to-server service.
+
+## 7. Load test
+
+Postman Performance run (`REST-API-basics--CRUD,-test-&-variable-performance-report-8.html`, `Jolt-Metrics.png`, commit `90bc424`):
+
+| Virtual users | Duration | Requests | Throughput | Avg response | Error rate |
+|---|---|---|---|---|---|
+| 50 | 1 min | 1,860 | 27.45 req/s | 295 ms | **0.00 %** |
+
+Zero errors under 50 concurrent users. The throughput ceiling comes from the polling design (see limitation L1), and it is the main target for v1.
+
+---
+
+## Known limitations at v0.1.0
+
+These were found by reviewing the baseline. They define the v1 roadmap.
+
+| ID | Area | Limitation | Location |
+|---|---|---|---|
+| L1 | Performance | Threads sleep-poll (`Thread.sleep(250/500)`) for readiness, which adds up to ~0.75 s latency and limits throughput | `ClientConnection.java:43`, `ClientResponder.java:32` |
+| L2 | Concurrency | Unbounded threads: 2 per connection plus 1 per request | `Jolt.java:170`, `ClientConnection.java:38` |
+| L3 | Concurrency | `LinkedList` queue and `isReady` flags shared across threads with no synchronization or `volatile` | `ClientResponder.java:17` |
+| L4 | Correctness | Middleware chain runs only the first handler (`while (i == callBackLen)`) | `Jolt.java:94` |
+| L5 | Correctness | `PUT` registration initializes the POST map, so an app whose first route is PUT throws `NullPointerException` | `Jolt.java:143` |
+| L6 | Correctness | A handler exception never marks the response ready, so the connection hangs | `Jolt.java:95` |
+| L7 | Correctness | Body read stops at `in.available()==0`, not at `Content-Length`, so large bodies can be truncated | `RequestHandler.java:71` |
+| L8 | Correctness | Cookies read from `Cookies` (should be `Cookie`), and multiple `Set-Cookie` values joined into one header | `RequestHandler.java:24`, `Response.java:43` |
+| L9 | Correctness | Router prefix match depends on `HashMap` order, and DELETE/PATCH are unsupported | `Jolt.java:52` |
+| L10 | Security | Hardcoded JWT secret, and plaintext passwords in the DB | `Auth.java:31` |
+| L11 | Security | No limits on header or body size, and no slowloris protection | `RequestHandler.java:66` |
+| L12 | Security | Credentials, tokens and full requests printed to stdout | `Request.java:47`, `RequestHandler.java:131` |
+| L13 | Security | Uploads written to a fixed path inside `src/main/resources`, and wildcard CORS hardcoded | `RequestHandler.java:137` |
+| L14 | Packaging | Not importable: static global route tables, demo apps in the framework package, build output and DB committed | `Router.java:7` |
+| L15 | Quality | No automated tests | — |
+
+## Skills demonstrated
+
+- HTTP/1.1 message framing at the byte level.
+- Socket programming.
+- Thread-based concurrency and ordering guarantees.
+- Token-based and Basic authentication.
+- JDBC with prepared statements.
+- API design modelled on Express.
+- Performance testing with Postman.
+- Debugging protocol-level issues (header casing, binary bodies).
