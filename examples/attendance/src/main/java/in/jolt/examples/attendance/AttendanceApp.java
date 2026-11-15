@@ -23,14 +23,19 @@ final class AttendanceApp {
 
     private AttendanceApp() {}
 
+    private static final String DUMMY_HASH = PasswordHasher.hash("no such user");
+
     static boolean authenticate(String userId, String password) {
-        String sql = "SELECT 1 FROM credentials WHERE user_id = ? AND password = ?";
+        String sql = "SELECT password_hash FROM users WHERE user_id = ?";
         try (Connection conn = DBConnection.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, userId);
-            stmt.setString(2, password);
             try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
+                if (!rs.next()) {
+                    PasswordHasher.verify(password, DUMMY_HASH);
+                    return false;
+                }
+                return PasswordHasher.verify(password, rs.getString(1));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Credential lookup failed", e);
