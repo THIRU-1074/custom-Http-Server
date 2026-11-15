@@ -94,4 +94,13 @@ class HttpParserStrictTest {
                         + "\r\n";
         assertEquals(431, assertThrows(HttpException.class, () -> parse(raw, small)).status());
     }
+
+    @Test
+    void requestLineOfExactlyTheCapIsAcceptedAndOneMoreIs414() throws IOException {
+        String exact = "GET /" + "a".repeat(64 - "GET / HTTP/1.1".length()) + " HTTP/1.1";
+        assertEquals(64, exact.length());
+        assertEquals(64 - 14 + 1, parse(exact + "\r\n\r\n", LIMITS).path().length());
+        String over = "GET /" + "a".repeat(64 - "GET / HTTP/1.1".length() + 1) + " HTTP/1.1";
+        assertEquals(414, statusOf(over + "\r\n\r\n"));
+    }
 }

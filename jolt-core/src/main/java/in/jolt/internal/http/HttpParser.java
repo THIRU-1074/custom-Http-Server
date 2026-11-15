@@ -111,6 +111,7 @@ public final class HttpParser {
         int skipped = 0;
         int prev = -1;
         boolean inRequestLine = true;
+        int lineLength = 0;
         while (true) {
             int b = in.read();
             if (b < 0) {
@@ -133,7 +134,7 @@ public final class HttpParser {
             if (inRequestLine) {
                 if (b == '\n') {
                     inRequestLine = false;
-                } else if (buf.size() > limits.maxRequestLineBytes()) {
+                } else if (b != '\r' && ++lineLength > limits.maxRequestLineBytes()) {
                     throw new HttpException(HttpStatus.URI_TOO_LONG, "Request line too long");
                 }
             }
