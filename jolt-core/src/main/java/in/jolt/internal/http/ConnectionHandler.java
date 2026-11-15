@@ -120,6 +120,15 @@ public final class ConnectionHandler implements Runnable {
         var mapper = config.jsonMapper();
         Request req =
                 new Request(p.method(), p.path(), p.rawQuery(), p.headers(), p.body(), mapper);
+        return respond(dispatcher, config, req);
+    }
+
+    /**
+     * Runs one request through {@code dispatcher} and maps exceptions to error responses. Shared by
+     * the socket server and the in-memory test client so both behave identically.
+     */
+    public static Response respond(Dispatcher dispatcher, JoltConfig config, Request req) {
+        var mapper = config.jsonMapper();
         Response res =
                 new Response(mapper)
                         .secureCookies(config.secureCookies())
@@ -132,7 +141,7 @@ public final class ConnectionHandler implements Runnable {
         } catch (Throwable t) {
             LOG.log(
                     System.Logger.Level.ERROR,
-                    "Unhandled exception on " + p.method() + " " + p.path(),
+                    "Unhandled exception on " + req.method() + " " + req.path(),
                     t);
             return errorResponse(
                     res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
