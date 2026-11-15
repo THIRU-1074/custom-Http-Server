@@ -120,6 +120,26 @@ class HttpParserTest {
     }
 
     @Test
+    void declaredLengthDoesNotPreallocateTheBody() {
+        Limits huge = new Limits(1024, Integer.MAX_VALUE);
+        InputStream in = stream("POST / HTTP/1.1\r\nContent-Length: 2000000000\r\n\r\nabc");
+        assertThrows(EOFException.class, () -> HttpParser.parse(in, huge));
+    }
+
+    @Test
+    void largeBodiesAreReadInFull() throws IOException {
+        byte[] head =
+                "POST / HTTP/1.1\r\nContent-Length: 200000\r\n\r\n"
+                        .getBytes(StandardCharsets.UTF_8);
+        byte[] all = new byte[head.length + 200_000];
+        System.arraycopy(head, 0, all, 0, head.length);
+        java.util.Arrays.fill(all, head.length, all.length, (byte) 'x');
+        ParsedRequest r =
+                HttpParser.parse(new ByteArrayInputStream(all), new Limits(1024, 1_000_000));
+        assertEquals(200_000, r.body().length);
+    }
+
+    @Test
     void truncatedBodyIsAnIoError() {
         assertThrows(
                 EOFException.class, () -> parse("POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nab"));

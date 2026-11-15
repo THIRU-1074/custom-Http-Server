@@ -34,6 +34,7 @@ public final class HttpParser {
     private static final Set<String> METHODS =
             Set.of("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
     private static final int MAX_CHUNK_LINE = 1024;
+    private static final int READ_CHUNK = 8192;
 
     private HttpParser() {}
 
@@ -146,16 +147,18 @@ public final class HttpParser {
     }
 
     private static byte[] readExactly(InputStream in, int len) throws IOException {
-        byte[] body = new byte[len];
-        int off = 0;
-        while (off < len) {
-            int n = in.read(body, off, len - off);
+        ByteArrayOutputStream body = new ByteArrayOutputStream(Math.min(len, READ_CHUNK));
+        byte[] chunk = new byte[Math.min(len, READ_CHUNK)];
+        int remaining = len;
+        while (remaining > 0) {
+            int n = in.read(chunk, 0, Math.min(remaining, chunk.length));
             if (n < 0) {
                 throw new EOFException("Connection closed mid-body");
             }
-            off += n;
+            body.write(chunk, 0, n);
+            remaining -= n;
         }
-        return body;
+        return body.toByteArray();
     }
 
     private static byte[] readChunked(InputStream in, int max) throws IOException {
