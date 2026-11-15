@@ -18,6 +18,7 @@ public final class Server implements AutoCloseable {
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
     private static final long GRACE_SECONDS = 5;
+    private static final long ACCEPT_BACKOFF_MS = 50;
 
     private final JoltConfig config;
     private final ConnectionHandler.Dispatcher dispatcher;
@@ -30,10 +31,14 @@ public final class Server implements AutoCloseable {
 
     Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
             throws IOException {
+        this(config, new ServerSocket(port, 1024), dispatcher);
+    }
+
+    Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {
         this.config = config;
         this.dispatcher = dispatcher;
         this.permits = new Semaphore(config.maxConnections());
-        this.serverSocket = new ServerSocket(port, 1024);
+        this.serverSocket = serverSocket;
         this.acceptor = new Thread(this::acceptLoop, "jolt-acceptor");
         acceptor.start();
     }
@@ -49,10 +54,16 @@ public final class Server implements AutoCloseable {
             try {
                 socket = serverSocket.accept();
             } catch (IOException e) {
-                if (!closing) {
-                    LOG.log(System.Logger.Level.ERROR, "Accept failed", e);
+                if (closing || serverSocket.isClosed()) {
+                    return;
                 }
-                return;
+                LOG.log(System.Logger.Level.WARNING, "Accept failed, retrying", e);
+                try {
+                    Thread.sleep(ACCEPT_BACKOFF_MS);
+                } catch (InterruptedException ie) {
+                    return;
+                }
+                continue;
             }
             if (!permits.tryAcquire()) {
                 ConnectionHandler.reject(socket);
