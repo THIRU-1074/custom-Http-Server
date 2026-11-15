@@ -1,62 +1,110 @@
-### ⚡⚡Jolt⚡⚡ - A custom Http Frame work 🚀
+# Jolt
 
-A lightweight, customizable HTTP server written in Java.  
-It handles HTTP/1.0 and HTTP/1.1 requests, allows defining endpoints, and supports flexible response manipulation.
+**An Express-style HTTP framework for Java, built from raw sockets.**
 
-- 🚂inspired from simplicity of Express.js API, the Framework Interface would appear in similar way
+Write a Java web server the way you write one in Express.js, with no annotations, no beans and no container to learn first.
 
-- 🧶multithreaded FrameWork,
+```java
+Jolt.GET("/hello/:name", (req, res) -> {
+    JSON body = new JSON();
+    body.add("greeting", "Hello " + req.urlPathParams.get("name"));
+    res.setBody(body);
+});
+Jolt.listen(8080, () -> System.out.println("up"));
+```
 
-  - Can handle multiple Clients concurrently
-  - Can receive multiple Requests when the Request handling and Responding is on Progress.
-  - The responding order is maintained with Response queueing ensuring consistency accross important db Transactions.
+> Status: **v0.1.0 (proof of concept)**. Jolt works for the demo apps and survived a load test, but it is not yet a library you can import: the API below is package-private today, so the snippet only compiles inside the `in.jolt` package. Several known bugs are listed in [Where it is going](#where-it-is-going).
 
-- 💡The framework has url Routers to isolate the API endpoints, it also allows divide and conquer in design and teams to work on developing different Routers and combine them for a specific domain.
+## The story
 
-- A simple Attendance Application has been made with Jolt (ie the framework) to demonstrate the working.
+I learned backend development with Express.js. A route is one line and a server is ten. When I tried the same in Java, the standard answer was Spring Boot: annotations, dependency injection, auto-configuration and a lot of hidden machinery. It is powerful, but the entry barrier is high, and that is why many college students stay with Node.
 
-## ![Alt Text](jolt-http-server\Jolt-Metrics.png)
+So I asked: **what would a Java framework look like if it felt like Express?** To avoid hiding anything, I built it from the lowest level: a `ServerSocket`, and my own HTTP parser.
 
-## 📦 Features
+## How it was built
 
-- Supports **GET**, **POST**, **PUT**, **DELETE**, and other HTTP methods.
-- Easy endpoint registration with full control over requests and responses.
-- Inspect incoming headers, body, and path data.
-- Set custom headers, status codes, and body in responses.
-- Start server on any port and shut it down gracefully.
+| Date | Milestone |
+|---|---|
+| 14 Jun 2025 | Maven project, JWT and Basic auth routines |
+| 16 Jun | Authorization workflow tested end to end |
+| 19 Jun | Multithreading for connections and requests, then the `Router` feature |
+| 23 Jun | Second app on the framework: a webhook broadcast service |
+| 29 Jun | Fixed the multiple-socket (keep-alive) issue |
+| 12 Jul | Load-tested an API built with Jolt |
+| 16-18 Jul | Path and query parameters, a handler bug, case-insensitive headers |
+| 21 Jul | Parser rewritten from characters to **bytes**, to receive binary bodies |
 
----
+Full details with evidence for each item are in [docs/KRA.md](docs/KRA.md).
 
-## 🛠️ Getting Started
+## What works today
 
-### ✅ Prerequisites
+- **Express-like API:** `GET`, `POST`, `ALL`, `:param` path parameters and query parameters. `PUT` is registered but buggy, and only the first handler per route runs (see known limitations).
+- **Routers:** build separate route groups and mount them with `Jolt.use("/auth", router)`.
+- **Auth:** HTTP Basic (database-backed) and JWT (HS256).
+- **Content:** JSON, HTML, text and images, with `Content-Type` and `Content-Length` handled for you.
+- **HTTP/1.1:** keep-alive, pipelined requests answered in order (with unsynchronized shared state, so not race-free), and binary request bodies for small payloads.
+- **Two demo apps:** an attendance system and a webhook notification service.
 
-- Java 8+
-- Maven (for building)
+## Architecture (v0.1.0)
 
-### 📥 Clone and Build
+```mermaid
+flowchart LR
+    C[Client] -->|TCP| L[Jolt.listen: accept loop]
+    L --> CC[ClientConnection thread]
+    CC --> RH[RequestHandler: byte parser]
+    RH --> J[Jolt: route match]
+    J --> H[Your handler]
+    H --> Q[Response queue]
+    Q --> R[ClientResponder: ordered writer]
+    R -->|TCP| C
+```
+
+## Numbers
+
+Postman load test, 50 virtual users for 1 minute ([report](jolt-http-server/REST-API-basics--CRUD,-test-&-variable-performance-report-8.html)):
+
+| Requests | Throughput | Avg response | Errors |
+|---|---|---|---|
+| 1,860 | 27.45 req/s | 295 ms | 0.00 % |
+
+![Jolt load test metrics](jolt-http-server/Jolt-Metrics.png)
+
+## What I learned
+
+- HTTP is just bytes: a text request line, headers ending in `\r\n\r\n`, then a body. Treating a binary body as text corrupts it.
+- Concurrency has to preserve order. Keep-alive clients can send several requests before the first answer, and responses must come back in order.
+- Auth is mostly about failure modes: an expired token, a bad signature and a malformed token should all be told apart.
+- Reviewing my own work honestly is worth more than the demo (next section).
+
+## Where it is going
+
+A review of v0.1.0 found real problems (15 are listed in [docs/KRA.md](docs/KRA.md#known-limitations-at-v010)): unbounded threads, sleep-polling, a middleware bug, hardcoded secrets, and no size limits or tests. The framework is also mixed in with the server, so it cannot be imported as a package.
+
+**v1.0 goals**
+
+1. **A real library.** Multi-module Maven: `jolt-core` with zero dependencies, optional `jolt-auth` and `jolt-mcp`, and examples kept separate.
+2. **Safe by default.** Bounded virtual threads, request limits, timeouts, no default secrets.
+3. **Tested.** An in-memory test client, protocol tests on a real socket, and a coverage gate.
+4. **AI-native.** Jolt aims to be the cheapest Java framework for an AI agent to build with:
+   - a compact `llms.txt` API cheat sheet,
+   - a published token-count benchmark against Spring Boot and Javalin,
+   - helpful one-line errors,
+   - registered routes exposed as MCP tools.
+
+## Getting started
+
+Requirements: JDK 24 (what `pom.xml` targets today; v1 moves to 21 LTS) and Maven.
 
 ```bash
 git clone https://github.com/THIRU-1074/custom-Http-Server.git
-cd custom-Http-Server
-mvn clean package
+cd custom-Http-Server/jolt-http-server
+mvn compile exec:java
 ```
 
-### Try your Stuff
+The demo attendance app starts on port 5007. Note: the repo currently tracks `AttendanceApp.db` and build output; cleanup is part of the governance phase, and the demo credentials in it should be treated as public. To build your own, replace `AttendanceApp` and `NotificationServer` and call your app from `Main`.
 
-- Remove the Attendance.java and NotificationServer.java ( A webhook Service App), then create your own app.
-- The app could be split into multiple files with logically partitioned APIs
-- Make sure to call all the (your_apps).java in our Main.java.
+## Resources
 
-### To play around with Framework
-
-- Make sure to get a good grip on thr protocol
-- Refer any docs of your interest
-- But the best and highly recommended by me is:
-  (https://developer.mozilla.org/en-US/docs/Web/HTTP)
-
-### Key Tools used
-
-- Postman API Testing (Provides everything from different MIME types to different Auth Type).
-- JWT tester was helpful with developing JWT functionalities.
-  (https://jwt.io/)
+- [MDN HTTP docs](https://developer.mozilla.org/en-US/docs/Web/HTTP), the best reference for the protocol.
+- [jwt.io](https://jwt.io/) for debugging tokens.
+- Postman for API and load testing.
