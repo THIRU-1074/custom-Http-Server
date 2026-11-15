@@ -6,8 +6,28 @@
 
   <groupId>in.jolt</groupId>
   <artifactId>jolt-parent</artifactId>
-  <version>0.2.0-SNAPSHOT</version>
+  <version>0.2.0</version>
   <packaging>pom</packaging>
+
+  <name>Jolt</name>
+  <description>Express-style HTTP framework for Java 21, built on raw sockets with zero core dependencies.</description>
+  <url>https://github.com/THIRU-1074/custom-Http-Server</url>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>THIRU-1074</id>
+      <url>https://github.com/THIRU-1074</url>
+    </developer>
+  </developers>
+  <scm>
+    <url>https://github.com/THIRU-1074/custom-Http-Server</url>
+    <connection>scm:git:https://github.com/THIRU-1074/custom-Http-Server.git</connection>
+  </scm>
 
   <modules>
     <module>jolt-core</module>
@@ -124,4 +144,47 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>jitpack</id>
+      <activation>
+        <property>
+          <name>env.JITPACK</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.6.3</version>
+            <configuration>
+              <doclint>none</doclint>
+              <failOnError>false</failOnError>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
