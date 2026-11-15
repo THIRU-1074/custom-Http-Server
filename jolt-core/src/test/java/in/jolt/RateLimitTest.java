@@ -166,6 +166,21 @@ class RateLimitTest {
     }
 
     @Test
+    void remoteAddressIsSetOnlyThroughTheConstructor() {
+        var mapper = JoltConfig.defaults().jsonMapper();
+        Request r = new Request("GET", "/", "", java.util.Map.of(), null, mapper, "8.8.8.8");
+        assertEquals("8.8.8.8", r.remoteAddress());
+        assertEquals(
+                null,
+                new Request("GET", "/", "", java.util.Map.of(), null, mapper).remoteAddress());
+        for (var m : Request.class.getMethods()) {
+            if (m.getName().equals("remoteAddress")) {
+                assertEquals(0, m.getParameterCount());
+            }
+        }
+    }
+
+    @Test
     void requestExposesRemoteAddress() {
         App app = Jolt.create();
         app.get("/", (req, res) -> res.text(String.valueOf(req.remoteAddress())));

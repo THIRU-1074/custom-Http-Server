@@ -118,10 +118,16 @@ public final class ConnectionHandler implements Runnable {
 
     private Response handle(HttpParser.ParsedRequest p) {
         var mapper = config.jsonMapper();
-        Request req =
-                new Request(p.method(), p.path(), p.rawQuery(), p.headers(), p.body(), mapper);
         var peer = socket.getInetAddress();
-        req.remoteAddress(peer == null ? null : peer.getHostAddress());
+        Request req =
+                new Request(
+                        p.method(),
+                        p.path(),
+                        p.rawQuery(),
+                        p.headers(),
+                        p.body(),
+                        mapper,
+                        peer == null ? null : peer.getHostAddress());
         return respond(dispatcher, config, req);
     }
 

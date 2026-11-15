@@ -23,7 +23,7 @@ public final class Request {
     private Map<String, String> query;
     private Map<String, String> cookies;
     private Map<String, String> form;
-    private String remoteAddress;
+    private final String remoteAddress;
 
     public Request(
             String method,
@@ -32,6 +32,19 @@ public final class Request {
             Map<String, String> headers,
             byte[] body,
             JsonMapper mapper) {
+        this(method, path, rawQuery, headers, body, mapper, null);
+    }
+
+    /** As above, with the peer address the server saw; it cannot change afterwards. */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress) {
+        this.remoteAddress = remoteAddress;
         this.method = method;
         this.path = path;
         this.rawQuery = rawQuery == null ? "" : rawQuery;
@@ -159,12 +172,6 @@ public final class Request {
     /** IP address of the connected peer, or {@code null} when unknown. */
     public String remoteAddress() {
         return remoteAddress;
-    }
-
-    /** Sets the peer address; the server calls this once per request. */
-    public Request remoteAddress(String address) {
-        this.remoteAddress = address;
-        return this;
     }
 
     /** Per-request value set by middleware, or {@code null}. */

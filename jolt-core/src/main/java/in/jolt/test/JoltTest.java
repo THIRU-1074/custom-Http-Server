@@ -132,8 +132,8 @@ public final class JoltTest {
                             rawQuery,
                             headers,
                             body,
-                            mapper);
-            req.remoteAddress(remoteAddress);
+                            mapper,
+                            remoteAddress);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             return new Result(app, method + " " + path, res);
         }
