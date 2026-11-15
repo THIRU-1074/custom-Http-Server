@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
@@ -33,6 +34,8 @@ public final class HttpParser {
 
     private static final Set<String> METHODS =
             Set.of("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
+    private static final byte[] CONTINUE =
+            "HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
     private static final int MAX_CHUNK_LINE = 1024;
     private static final int READ_CHUNK = 8192;
     private static final int MAX_LEADING_BREAKS = 8;
@@ -46,6 +49,16 @@ public final class HttpParser {
      * @throws HttpException for malformed or oversized requests
      */
     public static ParsedRequest parse(InputStream in, Limits limits) throws IOException {
+        return parse(in, limits, null);
+    }
+
+    /**
+     * As {@link #parse(InputStream, Limits)}; when the request sends {@code Expect: 100-continue}
+     * and a body that fits the limit, {@code interim} gets {@code HTTP/1.1 100 Continue} before the
+     * body is read.
+     */
+    public static ParsedRequest parse(InputStream in, Limits limits, OutputStream interim)
+            throws IOException {
         byte[] head = readHead(in, limits);
         if (head == null) {
             return null;
@@ -101,8 +114,28 @@ public final class HttpParser {
             headers.merge(name, value, (a, b) -> a + sep + b);
         }
 
+        if (headers.containsKey("Expect") && version.equals("HTTP/1.1")) {
+            expect(headers, limits, interim);
+        }
         byte[] body = readBody(in, headers, limits);
         return new ParsedRequest(method, path, rawQuery, version, headers, body);
+    }
+
+    private static void expect(Map<String, String> headers, Limits limits, OutputStream interim)
+            throws IOException {
+        if (!headers.get("Expect").equalsIgnoreCase("100-continue")) {
+            throw new HttpException(HttpStatus.EXPECTATION_FAILED, "Unsupported Expect");
+        }
+        String cl = headers.get("Content-Length");
+        boolean body = headers.containsKey("Transfer-Encoding");
+        if (cl != null && cl.length() < 10 && cl.chars().allMatch(Character::isDigit)) {
+            long len = Long.parseLong(cl);
+            body = len > 0 && len <= limits.maxBodyBytes();
+        }
+        if (body && interim != null) {
+            interim.write(CONTINUE);
+            interim.flush();
+        }
     }
 
     private static byte[] readHead(InputStream in, Limits limits) throws IOException {

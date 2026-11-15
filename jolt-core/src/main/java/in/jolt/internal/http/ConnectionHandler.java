@@ -90,7 +90,7 @@ public final class ConnectionHandler implements Runnable {
 
                 HttpParser.ParsedRequest parsed;
                 try {
-                    parsed = HttpParser.parse(in, limits);
+                    parsed = HttpParser.parse(in, limits, out);
                 } catch (HttpException e) {
                     writeError(out, new Response(config.jsonMapper()), e.status(), e.getMessage());
                     return;

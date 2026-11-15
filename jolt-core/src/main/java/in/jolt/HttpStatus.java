@@ -21,6 +21,7 @@ public enum HttpStatus {
     PAYLOAD_TOO_LARGE(413, "Payload Too Large"),
     URI_TOO_LONG(414, "URI Too Long"),
     UNSUPPORTED_MEDIA_TYPE(415, "Unsupported Media Type"),
+    EXPECTATION_FAILED(417, "Expectation Failed"),
     UNPROCESSABLE_ENTITY(422, "Unprocessable Entity"),
     TOO_MANY_REQUESTS(429, "Too Many Requests"),
     HEADER_FIELDS_TOO_LARGE(431, "Request Header Fields Too Large"),
