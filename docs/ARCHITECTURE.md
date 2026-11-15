@@ -1,6 +1,6 @@
 # Architecture
 
-> This describes the **v1 target design**. The code at v0.1.0 does not match it yet: it has static route tables, thread-per-stage connection handling and no module split. See [KRA.md](KRA.md) for the current state.
+> This describes the **v1 target design**. The code at v0.1.0 does not match it yet: it has static route tables, thread-per-stage connection handling and no module split. The current state is documented in KRA.md on the `docs/kra-readme` branch.
 
 ## Module map
 

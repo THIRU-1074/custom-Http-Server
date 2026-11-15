@@ -9,7 +9,7 @@ case "$subject" in
 esac
 
 types='feat|fix|refactor|test|docs|chore|perf|build|ci'
-if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\\([a-z0-9._/-]+\\))?!?: .{1,72}\$"; then
+if [ "${#subject}" -gt 72 ] || ! printf '%s\n' "$subject" | grep -Eq "^($types)(\\([a-z0-9._/-]+\\))?!?: .+\$"; then
   echo "commit-msg: invalid subject: $subject" >&2
   echo "  expected: type(scope): subject  (max 72 chars)" >&2
   echo "  types: feat fix refactor test docs chore perf build ci" >&2
