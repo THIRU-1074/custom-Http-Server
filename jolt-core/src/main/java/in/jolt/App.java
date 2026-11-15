@@ -7,11 +7,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
@@ -20,8 +21,8 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
 
     private record Entry(long order, ErrorMapper<?> mapper) {}
 
-    private final Map<Class<?>, Entry> mappers = new HashMap<>();
-    private long registrations;
+    private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
+    private final AtomicLong registrations = new AtomicLong();
 
     App(JoltConfig config) {
         this.config = config;
@@ -57,12 +58,13 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     /**
      * Maps exceptions of {@code type} (a class or an interface) to a reply. The registered type
      * closest to the exception's class, counting superclass and interface steps breadth-first,
-     * wins; ties go to the first registered. Unmapped exceptions keep the default handling. An
-     * {@link HttpException} is mapped only by a mapper registered for {@code HttpException} or a
-     * subclass, never by a broader type such as {@code RuntimeException}.
+     * wins; ties go to the first registered. Safe to call after {@link #listen}, though registering
+     * before it is the norm. Unmapped exceptions keep the default handling. An {@link
+     * HttpException} is mapped only by a mapper registered for {@code HttpException} or a subclass,
+     * never by a broader type such as {@code RuntimeException}.
      */
     public <E> App onError(Class<E> type, ErrorMapper<E> mapper) {
-        mappers.put(type, new Entry(registrations++, mapper));
+        mappers.put(type, new Entry(registrations.getAndIncrement(), mapper));
         return this;
     }
 

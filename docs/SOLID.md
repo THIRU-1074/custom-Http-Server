@@ -23,7 +23,7 @@ Add behaviour by adding code, not by editing existing code.
 
 - New feature: a new `RouteModule` and one `app.module(...)` line in `Main`.
 - Cross-cutting concerns (auth, logging, CORS) are `Middleware` registered with `app.use(...)`; handlers never change.
-- New error cases: `app.onError(Type.class, mapper)`, for classes or interfaces. The closest registered type wins (superclass and interface steps counted breadth-first, ties to the first registered), so a general mapper can be refined later without touching it. A broad mapper (`RuntimeException`, `Exception`, `Throwable`) never captures an `HttpException`; register one for `HttpException` itself to do that.
+- New error cases: `app.onError(Type.class, mapper)`, for classes or interfaces. The closest registered type wins (superclass and interface steps counted breadth-first, ties to the first registered), so a general mapper can be refined later without touching it. A broad mapper (`RuntimeException`, `Exception`, `Throwable`) never captures an `HttpException`; register one for `HttpException` itself to do that. The mapper registry is thread-safe, so `onError` after `listen()` works, but registering before `listen()` is still the norm.
 - Different JSON library: implement `JsonMapper` and pass it via `JoltConfig.jsonMapper`.
 
 ## L: Liskov substitution
