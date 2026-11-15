@@ -16,8 +16,12 @@ import java.util.Map;
  */
 public final class Json {
 
+    private static final int MAX_DEPTH = 64;
+    private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
+
     private final String src;
     private int pos;
+    private int depth;
 
     private Json(String src) {
         this.src = src;
@@ -36,7 +40,7 @@ public final class Json {
 
     public static String write(Object value) {
         StringBuilder sb = new StringBuilder();
-        write(value, sb);
+        write(value, sb, 0);
         return sb.toString();
     }
 
@@ -61,8 +65,14 @@ public final class Json {
         }
         char c = src.charAt(pos);
         return switch (c) {
-            case '{' -> object();
-            case '[' -> array();
+            case '{', '[' -> {
+                if (++depth > MAX_DEPTH) {
+                    throw new IllegalArgumentException(TOO_DEEP);
+                }
+                Object nested = c == '{' ? object() : array();
+                depth--;
+                yield nested;
+            }
             case '"' -> string();
             case 't' -> literal("true", Boolean.TRUE);
             case 'f' -> literal("false", Boolean.FALSE);
@@ -203,7 +213,10 @@ public final class Json {
         }
     }
 
-    private static void write(Object v, StringBuilder sb) {
+    private static void write(Object v, StringBuilder sb, int depth) {
+        if (depth > MAX_DEPTH) {
+            throw new IllegalArgumentException(TOO_DEEP);
+        }
         switch (v) {
             case null -> sb.append("null");
             case CharSequence s -> quote(s, sb);
@@ -223,7 +236,7 @@ public final class Json {
                     first = false;
                     quote(String.valueOf(en.getKey()), sb);
                     sb.append(':');
-                    write(en.getValue(), sb);
+                    write(en.getValue(), sb, depth + 1);
                 }
                 sb.append('}');
             }
@@ -235,11 +248,11 @@ public final class Json {
                         sb.append(',');
                     }
                     first = false;
-                    write(o, sb);
+                    write(o, sb, depth + 1);
                 }
                 sb.append(']');
             }
-            case Record r -> writeRecord(r, sb);
+            case Record r -> writeRecord(r, sb, depth);
             default -> {
                 if (!v.getClass().isArray()) {
                     throw new IllegalArgumentException(
@@ -250,14 +263,14 @@ public final class Json {
                     if (i > 0) {
                         sb.append(',');
                     }
-                    write(Array.get(v, i), sb);
+                    write(Array.get(v, i), sb, depth + 1);
                 }
                 sb.append(']');
             }
         }
     }
 
-    private static void writeRecord(Record r, StringBuilder sb) {
+    private static void writeRecord(Record r, StringBuilder sb, int depth) {
         sb.append('{');
         RecordComponent[] comps = r.getClass().getRecordComponents();
         for (int i = 0; i < comps.length; i++) {
@@ -269,7 +282,7 @@ public final class Json {
             try {
                 var accessor = comps[i].getAccessor();
                 accessor.setAccessible(true);
-                write(accessor.invoke(r), sb);
+                write(accessor.invoke(r), sb, depth + 1);
             } catch (ReflectiveOperationException e) {
                 throw new IllegalArgumentException("Cannot read " + comps[i].getName(), e);
             }
