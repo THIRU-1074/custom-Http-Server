@@ -1,13 +1,18 @@
 package in.jolt.internal.json;
 
 import java.lang.reflect.Array;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -315,8 +320,13 @@ public final class Json {
     }
 
     private static Object convert(Object v, Type type, String where) {
-        Class<?> raw =
-                type instanceof ParameterizedType pt ? (Class<?>) pt.getRawType() : (Class<?>) type;
+        if (type instanceof WildcardType w) {
+            return convert(v, w.getUpperBounds()[0], where);
+        }
+        if (type instanceof TypeVariable<?> tv) {
+            return convert(v, tv.getBounds()[0], where);
+        }
+        Class<?> raw = rawClass(type);
         if (v == null) {
             return raw.isPrimitive() ? Array.get(Array.newInstance(raw, 1), 0) : null;
         }
@@ -348,24 +358,62 @@ public final class Json {
         if (raw.isRecord() && v instanceof Map<?, ?> m) {
             return record(raw, m);
         }
-        if (type instanceof ParameterizedType pt && v instanceof List<?> list) {
-            Type elem = pt.getActualTypeArguments()[0];
-            List<Object> out = new ArrayList<>();
-            for (Object o : list) {
-                out.add(convert(o, elem, where));
+        if (raw.isArray() && v instanceof List<?> list) {
+            Type elem =
+                    type instanceof GenericArrayType ga
+                            ? ga.getGenericComponentType()
+                            : raw.getComponentType();
+            Object array = Array.newInstance(raw.getComponentType(), list.size());
+            for (int i = 0; i < list.size(); i++) {
+                Array.set(array, i, convert(list.get(i), elem, where));
             }
-            return out;
+            return array;
         }
-        if (type instanceof ParameterizedType pt && v instanceof Map<?, ?> map) {
-            Type elem = pt.getActualTypeArguments()[1];
-            Map<String, Object> out = new LinkedHashMap<>();
-            map.forEach((k, o) -> out.put(String.valueOf(k), convert(o, elem, where + "." + k)));
-            return out;
+        if (type instanceof ParameterizedType pt) {
+            Type[] args = pt.getActualTypeArguments();
+            if (v instanceof List<?> list
+                    && args.length == 1
+                    && Collection.class.isAssignableFrom(raw)) {
+                Collection<Object> out = newCollection(raw);
+                if (out != null) {
+                    for (Object o : list) {
+                        out.add(convert(o, args[0], where));
+                    }
+                    return out;
+                }
+            } else if (v instanceof Map<?, ?> map
+                    && args.length == 2
+                    && Map.class.isAssignableFrom(raw)
+                    && raw.isAssignableFrom(LinkedHashMap.class)) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                map.forEach(
+                        (k, o) -> out.put(String.valueOf(k), convert(o, args[1], where + "." + k)));
+                return out;
+            }
         }
         if (raw.isInstance(v)) {
             return v;
         }
         throw mismatch(where, raw.getSimpleName());
+    }
+
+    private static Collection<Object> newCollection(Class<?> raw) {
+        if (raw.isAssignableFrom(ArrayList.class)) {
+            return new ArrayList<>();
+        }
+        return raw.isAssignableFrom(LinkedHashSet.class) ? new LinkedHashSet<>() : null;
+    }
+
+    private static Class<?> rawClass(Type type) {
+        return switch (type) {
+            case Class<?> c -> c;
+            case ParameterizedType p -> rawClass(p.getRawType());
+            case WildcardType w -> rawClass(w.getUpperBounds()[0]);
+            case TypeVariable<?> tv -> rawClass(tv.getBounds()[0]);
+            case GenericArrayType ga ->
+                    Array.newInstance(rawClass(ga.getGenericComponentType()), 0).getClass();
+            default -> throw new IllegalArgumentException("Unsupported type " + type);
+        };
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
