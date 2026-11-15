@@ -33,6 +33,44 @@ Packages named `internal` are not API.
 7. An uncaught exception becomes a 500 with a generic body, or the status of an `HttpException`. The stack trace goes to the logger only.
 8. `ResponseWriter` serializes the response, rejecting CR/LF in header names and values, then the connection loops or closes on keep-alive limits.
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (accept loop)
+    participant V as Virtual thread
+    participant P as HttpParser
+    participant R as RouteTrie
+    participant M as Middleware chain
+    participant H as Route handler
+    participant W as ResponseWriter
+
+    C->>S: TCP connect
+    alt no free permit
+        S-->>C: 503, close
+    else permit acquired
+        S->>V: start connection
+        loop each request (keep-alive)
+            C->>V: request bytes
+            V->>P: parse under size caps
+            alt malformed or oversize
+                P-->>V: 4xx
+            else valid
+                P-->>V: Request
+                V->>R: match method + path
+                R-->>V: handler chain + params
+                V->>M: run (req, res, next)
+                M->>H: next()
+                H-->>M: Response
+                M-->>V: Response
+            end
+            Note over V: uncaught exception becomes 500
+            V->>W: serialize
+            W-->>C: response bytes
+        end
+        V->>S: release permit, close
+    end
+```
+
 ## Design patterns
 
 | Pattern | Where |
