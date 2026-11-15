@@ -19,7 +19,18 @@ class MapperConcurrencyTest {
         a.onError(Timeout.class, e -> Reply.status(503, "retry"));
         JoltTest t = JoltTest.of(a);
         List<Class<?>> types = new ArrayList<>();
-        for (Class<?> base : List.of(Object.class, String.class, Integer.class, Long.class, Short.class, Byte.class, Double.class, Float.class, Boolean.class, Character.class)) {
+        for (Class<?> base :
+                List.of(
+                        Object.class,
+                        String.class,
+                        Integer.class,
+                        Long.class,
+                        Short.class,
+                        Byte.class,
+                        Double.class,
+                        Float.class,
+                        Boolean.class,
+                        Character.class)) {
             Class<?> c = base;
             for (int i = 0; i < 200; i++) {
                 c = Array.newInstance(c, 0).getClass();
