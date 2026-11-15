@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import in.jolt.HttpException;
+import in.jolt.JoltConfig;
 import in.jolt.internal.http.HttpParser.ParsedRequest;
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
@@ -20,7 +21,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 class HttpParserTest {
 
-    private static final Limits LIMITS = new Limits(1024, 64);
+    private static final Limits LIMITS = limits(1024, 64);
+
+    private static Limits limits(int headerBytes, int bodyBytes) {
+        return Limits.from(
+                JoltConfig.defaults().maxHeaderBytes(headerBytes).maxBodyBytes(bodyBytes));
+    }
 
     private static InputStream stream(String s) {
         return new ByteArrayInputStream(s.getBytes(StandardCharsets.ISO_8859_1));
@@ -129,7 +135,7 @@ class HttpParserTest {
 
     @Test
     void declaredLengthDoesNotPreallocateTheBody() {
-        Limits huge = new Limits(1024, Integer.MAX_VALUE);
+        Limits huge = limits(1024, Integer.MAX_VALUE);
         InputStream in = stream("POST / HTTP/1.1\r\nContent-Length: 2000000000\r\n\r\nabc");
         assertThrows(EOFException.class, () -> HttpParser.parse(in, huge));
     }
@@ -142,8 +148,7 @@ class HttpParserTest {
         byte[] all = new byte[head.length + 200_000];
         System.arraycopy(head, 0, all, 0, head.length);
         java.util.Arrays.fill(all, head.length, all.length, (byte) 'x');
-        ParsedRequest r =
-                HttpParser.parse(new ByteArrayInputStream(all), new Limits(1024, 1_000_000));
+        ParsedRequest r = HttpParser.parse(new ByteArrayInputStream(all), limits(1024, 1_000_000));
         assertEquals(200_000, r.body().length);
     }
 

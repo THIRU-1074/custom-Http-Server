@@ -64,12 +64,7 @@ public final class ConnectionHandler implements Runnable {
 
     @Override
     public void run() {
-        Limits limits =
-                new Limits(
-                        config.maxHeaderBytes(),
-                        config.maxBodyBytes(),
-                        config.maxRequestLineBytes(),
-                        config.maxHeaderCount());
+        Limits limits = Limits.from(config);
         try (socket) {
             socket.setTcpNoDelay(true);
             var in = new BufferedInputStream(socket.getInputStream(), 8192);
