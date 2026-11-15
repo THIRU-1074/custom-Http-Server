@@ -160,6 +160,12 @@ class HttpParserTest {
     }
 
     @Test
+    void duplicateCookieHeadersAreJoinedWithSemicolons() throws IOException {
+        ParsedRequest r = parse("GET / HTTP/1.1\r\nCookie: a=1\r\ncookie: b=2\r\n\r\n");
+        assertEquals("a=1; b=2", r.headers().get("Cookie"));
+    }
+
+    @Test
     void keepAliveSemantics() throws IOException {
         assertTrue(parse("GET / HTTP/1.1\r\n\r\n").keepAlive());
         assertFalse(parse("GET / HTTP/1.1\r\nConnection: close\r\n\r\n").keepAlive());

@@ -84,7 +84,8 @@ public final class HttpParser {
             }
             String name = lines[i].substring(0, colon).trim();
             String value = lines[i].substring(colon + 1).trim();
-            headers.merge(name, value, (a, b) -> a + ", " + b);
+            String sep = name.equalsIgnoreCase("Cookie") ? "; " : ", ";
+            headers.merge(name, value, (a, b) -> a + sep + b);
         }
 
         byte[] body = readBody(in, headers, limits.maxBodyBytes());
