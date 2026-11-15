@@ -10,3 +10,4 @@ target/
 .DS_Store
 
 .claude/worktrees/
+benchmarks/guard/last-run.json
