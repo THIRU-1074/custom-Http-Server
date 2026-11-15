@@ -127,10 +127,12 @@ class HttpParserEdgeTest {
     }
 
     @Test
-    void chunkedWinsOverContentLength() throws IOException {
-        ParsedRequest r =
-                parse("POST / HTTP/1.1~Transfer-Encoding: Chunked~Content-Length: 2~~3~abc~0~~");
-        assertEquals("abc", new String(r.body(), StandardCharsets.UTF_8));
+    void chunkedWithContentLengthIsRejected() {
+        assertThrows(
+                HttpException.class,
+                () ->
+                        parse(
+                                "POST / HTTP/1.1~Transfer-Encoding: Chunked~Content-Length: 2~~3~abc~0~~"));
     }
 
     @Test
