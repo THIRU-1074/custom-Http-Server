@@ -1,5 +1,6 @@
 package in.jolt.examples.attendance;
 
+import in.jolt.auth.PasswordHasher;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
