@@ -12,6 +12,15 @@ import java.util.Map;
 /** Fluent HTTP response. The body is buffered and written once the handler chain returns. */
 public final class Response {
 
+    private static final java.util.regex.Pattern COOKIE_ATTRIBUTE =
+            java.util.regex.Pattern.compile(
+                    "(?i)(?:Path=[!-:<-~]+"
+                            + "|Domain=\\.?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?"
+                            + "|Max-Age=-?[0-9]+"
+                            + "|Expires=[A-Za-z0-9 ,:-]+"
+                            + "|SameSite=(?:Strict|Lax|None)"
+                            + "|Secure|HttpOnly)");
+
     private final JsonMapper mapper;
     private final List<Map.Entry<String, String>> headers = new ArrayList<>();
     private int status = 200;
@@ -64,15 +73,32 @@ public final class Response {
                 name, value, "Path=/; HttpOnly; SameSite=Lax" + (secureCookies ? "; Secure" : ""));
     }
 
-    /** Adds one {@code Set-Cookie} header with the given attributes. */
+    /**
+     * Adds one {@code Set-Cookie} header with the given attributes.
+     *
+     * @throws IllegalArgumentException if the name is not an RFC 6265 token, the value is not made
+     *     of cookie-octets, or the attributes are not limited to Path, Domain, Max-Age, Expires,
+     *     SameSite, Secure and HttpOnly
+     */
     public Response cookie(String name, String value, String attributes) {
         checkHeader(name, value);
-        if (name.indexOf(';') >= 0 || name.indexOf('=') >= 0 || value.indexOf(';') >= 0) {
-            throw new IllegalArgumentException("Illegal character in cookie");
+        if (!isToken(name)) {
+            throw new IllegalArgumentException("Illegal character in cookie name");
         }
-        checkHeader("Set-Cookie", attributes == null ? "" : attributes);
-        String attrs = attributes == null || attributes.isBlank() ? "" : "; " + attributes;
-        headers.add(Map.entry("Set-Cookie", name + "=" + value + attrs));
+        if (!isCookieValue(value)) {
+            throw new IllegalArgumentException("Illegal character in cookie value");
+        }
+        String attrs = attributes == null ? "" : attributes.strip();
+        if (!attrs.isEmpty()) {
+            for (String attr : attrs.split("; ", -1)) {
+                if (!COOKIE_ATTRIBUTE.matcher(attr).matches()) {
+                    throw new IllegalArgumentException("Unsupported cookie attribute");
+                }
+            }
+        }
+        headers.add(
+                Map.entry(
+                        "Set-Cookie", name + "=" + value + (attrs.isEmpty() ? "" : "; " + attrs)));
         return this;
     }
 
@@ -184,15 +210,52 @@ public final class Response {
         return sent;
     }
 
+    private static boolean isToken(String s) {
+        if (s.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            boolean ok =
+                    c >= 'a' && c <= 'z'
+                            || c >= 'A' && c <= 'Z'
+                            || c >= '0' && c <= '9'
+                            || "!#$%&'*+-.^_`|~".indexOf(c) >= 0;
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isCookieValue(String v) {
+        int from = 0;
+        int to = v.length();
+        if (to >= 2 && v.charAt(0) == '"' && v.charAt(to - 1) == '"') {
+            from++;
+            to--;
+        }
+        for (int i = from; i < to; i++) {
+            char c = v.charAt(i);
+            boolean ok =
+                    c == 0x21
+                            || c >= 0x23 && c <= 0x2B
+                            || c >= 0x2D && c <= 0x3A
+                            || c >= 0x3C && c <= 0x5B
+                            || c >= 0x5D && c <= 0x7E;
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static void checkHeader(String name, String value) {
         if (name == null || name.isEmpty() || value == null) {
             throw new IllegalArgumentException("Header name and value are required");
         }
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (c <= ' ' || c == ':' || c >= 127) {
-                throw new IllegalArgumentException("Illegal character in header name");
-            }
+        if (!isToken(name)) {
+            throw new IllegalArgumentException("Illegal character in header name");
         }
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
