@@ -1,0 +1,7 @@
+Tokenizer: ESTIMATE chars/4 (tiktoken unavailable: ModuleNotFoundError)
+
+framework   source    test   build   total   vs jolt
+jolt           609     360     160    1129     1.00x
+spring         896     486     326    1708     1.51x
+javalin        680     377     334    1391     1.23x
+express        429     225      49     703     0.62x
