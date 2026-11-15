@@ -55,6 +55,8 @@ Respond without next.run() to stop the chain.
         .maxRequestsPerConnection(100).readTimeout(Duration.ofSeconds(10))
         .keepAliveTimeout(Duration.ofSeconds(5)).jsonMapper(myMapper)
         .bindAddress("0.0.0.0")      // default 127.0.0.1 (loopback only); 0.0.0.0 must be explicit
+    JoltConfig.fromEnv()         // BIND_ADDRESS, JOLT_MAX_BODY_BYTES, JOLT_MAX_CONNECTIONS; bad value throws
+    app.listen(8080).closeOnShutdown();   // JVM shutdown hook calls close()
 Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper interface.
 
 ## Introspection

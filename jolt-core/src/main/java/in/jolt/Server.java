@@ -29,6 +29,7 @@ public final class Server implements AutoCloseable {
     private final Set<ConnectionHandler> live = ConcurrentHashMap.newKeySet();
     private final Thread acceptor;
     private volatile boolean closing;
+    private Thread shutdownHook;
 
     Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
             throws IOException {
@@ -50,6 +51,30 @@ public final class Server implements AutoCloseable {
     /** The bound port, useful after {@code listen(0)}. */
     public int port() {
         return serverSocket.getLocalPort();
+    }
+
+    /** Closes this server from a JVM shutdown hook. Calling it again has no effect. */
+    public synchronized Server closeOnShutdown() {
+        if (shutdownHook == null && !closing) {
+            shutdownHook = new Thread(this::close, "jolt-shutdown");
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+        }
+        return this;
+    }
+
+    synchronized Thread shutdownHook() {
+        return shutdownHook;
+    }
+
+    private synchronized void unregisterHook() {
+        if (shutdownHook != null && Thread.currentThread() != shutdownHook) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down
+            }
+            shutdownHook = null;
+        }
     }
 
     private void acceptLoop() {
@@ -97,6 +122,7 @@ public final class Server implements AutoCloseable {
     @Override
     public void close() {
         closing = true;
+        unregisterHook();
         try {
             serverSocket.close();
             acceptor.join();
