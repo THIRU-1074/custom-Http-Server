@@ -2,6 +2,7 @@ package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Set;
@@ -31,7 +32,10 @@ public final class Server implements AutoCloseable {
 
     Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
             throws IOException {
-        this(config, new ServerSocket(port, 1024), dispatcher);
+        this(
+                config,
+                new ServerSocket(port, 1024, InetAddress.getByName(config.bindAddress())),
+                dispatcher);
     }
 
     Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {

@@ -2,6 +2,7 @@ package in.jolt.examples.attendance;
 
 import in.jolt.App;
 import in.jolt.Jolt;
+import in.jolt.JoltConfig;
 import in.jolt.Response;
 import in.jolt.Router;
 import in.jolt.auth.JwtAuth;
@@ -37,7 +38,11 @@ final class AttendanceApp {
     }
 
     static App create(JwtAuth jwt) {
-        App app = Jolt.create();
+        return create(jwt, JoltConfig.defaults());
+    }
+
+    static App create(JwtAuth jwt, JoltConfig config) {
+        App app = Jolt.create(config);
 
         app.get("/", (req, res) -> res.html(resourceText("index.html")));
         app.get("/favicon.ico", (req, res) -> image(res, "image.png"));

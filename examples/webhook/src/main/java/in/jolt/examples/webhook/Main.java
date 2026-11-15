@@ -1,5 +1,6 @@
 package in.jolt.examples.webhook;
 
+import in.jolt.JoltConfig;
 import java.sql.SQLException;
 
 public final class Main {
@@ -15,9 +16,11 @@ public final class Main {
             throw new IllegalStateException("Set WEBHOOK_USER and WEBHOOK_PASSWORD");
         }
         DBConnection.init();
+        String bind = System.getenv("BIND_ADDRESS");
+        var config = bind == null ? JoltConfig.defaults() : JoltConfig.defaults().bindAddress(bind);
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 5008;
         var server =
-                NotificationServer.create((u, p) -> u.equals(user) && p.equals(password))
+                NotificationServer.create((u, p) -> u.equals(user) && p.equals(password), config)
                         .listen(port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
         LOG.log(System.Logger.Level.INFO, "Webhook listening on port " + server.port());

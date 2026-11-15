@@ -77,7 +77,7 @@ class JoltTestTest {
 
     @Test
     void errorsMapLikeTheServer() {
-        t.get("/nowhere").expect(404).bodyContains("Cannot GET /nowhere");
+        t.get("/nowhere").expect(404).bodyContains("No route GET /nowhere");
         t.get("/fail").expect(409).body("nope");
         t.post("/todos").text("{").expect(400);
         t.get("/teapot").expect(418).body("short");

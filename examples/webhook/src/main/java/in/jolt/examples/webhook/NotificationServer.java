@@ -3,6 +3,7 @@ package in.jolt.examples.webhook;
 import in.jolt.App;
 import in.jolt.HttpException;
 import in.jolt.Jolt;
+import in.jolt.JoltConfig;
 import in.jolt.Middleware;
 import in.jolt.auth.BasicAuth;
 import java.io.IOException;
@@ -120,7 +121,11 @@ final class NotificationServer {
     }
 
     static App create(BiPredicate<String, String> verifier) {
-        App app = Jolt.create();
+        return create(verifier, JoltConfig.defaults());
+    }
+
+    static App create(BiPredicate<String, String> verifier, JoltConfig config) {
+        App app = Jolt.create(config);
         Middleware auth = BasicAuth.require(verifier);
         app.use("/register", auth);
         app.use("/company", auth);

@@ -135,7 +135,7 @@ class RoutingTest {
     void unknownPathIs404() throws IOException {
         Reply r = call(Jolt.create(), "GET", "/nope", "");
         assertEquals(404, r.status());
-        assertEquals("Cannot GET /nope", r.text());
+        assertEquals("No route GET /nope", r.text());
     }
 
     @Test
