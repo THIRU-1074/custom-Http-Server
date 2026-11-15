@@ -61,6 +61,9 @@ Closest class or interface wins (ties: first registered); HttpException keeps it
     app.use("/api", jwt.middleware());    // sets req.attr("user"), req.attr("claims"); else 401
     app.use("/admin", BasicAuth.require((u, p) -> check(u, p)));
 
+## Hardening, roles, tests
+    app.use(SecurityHeaders.defaults().hsts(Duration.ofDays(365)).csp("default-src 'self'"));   // nosniff, DENY, no-referrer, COOP/CORP; HSTS only if .https(req -> ...) says so
+
 ## Config (immutable, fluent copies)
     JoltConfig.defaults().maxConnections(1000).maxHeaderBytes(16384).maxBodyBytes(1<<20)
         .maxRequestsPerConnection(100).readTimeout(Duration.ofSeconds(10))
