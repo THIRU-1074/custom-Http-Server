@@ -36,9 +36,19 @@ public final class RouteTrie<T> {
                 return;
             }
             if (seg.startsWith(":")) {
+                String name = seg.substring(1);
                 if (node.param == null) {
                     node.param = new Node<>();
-                    node.paramName = seg.substring(1);
+                    node.paramName = name;
+                } else if (!node.paramName.equals(name)) {
+                    throw new IllegalArgumentException(
+                            "Conflicting path parameter ':"
+                                    + name
+                                    + "' in "
+                                    + pattern
+                                    + ": this position is already named ':"
+                                    + node.paramName
+                                    + "'");
                 }
                 node = node.param;
             } else {

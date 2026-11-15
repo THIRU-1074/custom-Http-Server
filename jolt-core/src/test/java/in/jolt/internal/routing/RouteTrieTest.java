@@ -3,6 +3,7 @@ package in.jolt.internal.routing;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,20 @@ class RouteTrieTest {
         assertNull(trie.find("/b"));
         assertNull(trie.find("/a"));
         assertNull(trie.find("/a/1/2"));
+    }
+
+    @Test
+    void conflictingParamNamesAtTheSamePositionAreRejected() {
+        var trie = new RouteTrie<String>();
+        trie.insert("/users/:id", "a");
+        trie.insert("/users/:id/posts", "b");
+
+        var e =
+                assertThrows(
+                        IllegalArgumentException.class, () -> trie.insert("/users/:userId/x", "c"));
+        assertTrue(e.getMessage().contains(":userId"), e.getMessage());
+        assertTrue(e.getMessage().contains(":id"), e.getMessage());
+        assertEquals("a", trie.find("/users/1").value());
     }
 
     @Test
