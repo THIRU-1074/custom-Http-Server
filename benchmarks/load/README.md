@@ -4,7 +4,7 @@ JDK-only closed-loop load generator: 50 virtual-thread clients hit one URL for 3
 then print throughput and mean latency of successful (status < 400) requests.
 
 ```
-java benchmarks/load/Load.java [url] [concurrency] [seconds]
+java benchmarks/load/Load.java [url] [concurrency] [seconds] ["Header: value"]
 java benchmarks/load/Load.java http://localhost:8080/ 50 30
 ```
 

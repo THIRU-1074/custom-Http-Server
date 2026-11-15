@@ -1,0 +1,21 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>demo</groupId>
+  <artifactId>mcp-demo</artifactId>
+  <version>1.0</version>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>in.jolt</groupId>
+      <artifactId>jolt-core</artifactId>
+      <version>0.2.0</version>
+    </dependency>
+    <dependency>
+      <groupId>in.jolt</groupId>
+      <artifactId>jolt-mcp</artifactId>
+      <version>0.2.0</version>
+    </dependency>
+  </dependencies>
+</project>
