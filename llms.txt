@@ -37,7 +37,8 @@ Unhandled exceptions give a 500 with no details. Unknown route: `No route GET /u
     app.use("/api", authMw);              // prefix-scoped, runs in registration order
 Respond without next.run() to stop the chain.
     app.use(Logger.requests());           // opt-in: "GET /path 200 3ms", no query/headers/bodies
-    app.use(RateLimit.perIp(100, Duration.ofMinutes(1)));   // 429 + Retry-After; req.remoteAddress()
+    app.use(RateLimit.perIp(100, Duration.ofMinutes(1)));   // 429 + Retry-After, LRU-bounded, IPv6 by /64; req.remoteAddress()
+    app.use(RateLimit.perKey(100, Duration.ofMinutes(1), req -> req.header("X-Api-Key")));   // own key, e.g. behind a proxy
 
 ## Routers
     Router api = new Router();
