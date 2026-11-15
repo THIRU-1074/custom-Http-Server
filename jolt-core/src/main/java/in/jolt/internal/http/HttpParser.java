@@ -156,9 +156,6 @@ public final class HttpParser {
         if (te != null && headers.containsKey("Content-Length")) {
             throw bad("Content-Length with Transfer-Encoding");
         }
-        if (te != null && headers.containsKey("Content-Length")) {
-            throw bad("Content-Length with Transfer-Encoding");
-        }
         if (te != null) {
             if (!te.equalsIgnoreCase("chunked")) {
                 throw new HttpException(
