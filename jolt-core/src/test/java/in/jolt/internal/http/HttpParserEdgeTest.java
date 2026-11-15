@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import in.jolt.HttpException;
+import in.jolt.JoltConfig;
 import in.jolt.internal.http.HttpParser.ParsedRequest;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -16,7 +17,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 /** Table-driven edge cases; {@code ~} stands for CRLF in the tables. */
 class HttpParserEdgeTest {
 
-    private static final Limits LIMITS = new Limits(256, 64);
+    private static final Limits LIMITS =
+            Limits.from(JoltConfig.defaults().maxHeaderBytes(256).maxBodyBytes(64));
 
     private static ParsedRequest parse(String raw) throws IOException {
         var in =
@@ -106,6 +108,21 @@ class HttpParserEdgeTest {
         assertEquals(64, r.body().length);
     }
 
+    @Test
+    void whitespaceAroundTheChunkSizeIsRejected() {
+        for (String size : new String[] {"3 ", " 3"}) {
+            var e =
+                    assertThrows(
+                            HttpException.class,
+                            () ->
+                                    parse(
+                                            "POST / HTTP/1.1~Transfer-Encoding: chunked~~"
+                                                    + size
+                                                    + "~abc~0~~"));
+            assertEquals(400, e.status());
+        }
+    }
+
     @ParameterizedTest(name = "{0}")
     @CsvSource(
             delimiter = '|',
@@ -115,7 +132,6 @@ class HttpParserEdgeTest {
                 "A~0123456789~0~~|0123456789",
                 "a~0123456789~0~~|0123456789",
                 "3;ext=1~abc~0~~|abc",
-                "3 ~abc~0~~|abc",
                 "0~~|",
                 "3~abc~0~X-Trailer: t~~|abc"
             })

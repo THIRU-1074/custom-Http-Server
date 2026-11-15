@@ -45,6 +45,12 @@ class JoltTestTest {
     }
 
     @Test
+    void errorRepliesKeepMiddlewareHeadersLikeTheSocketPath() {
+        t.get("/fail").expect(409).body("nope").header("x-seen", "yes");
+        t.get("/boom").expect(500).header("x-seen", "yes");
+    }
+
+    @Test
     void runsMiddlewareAndRoutesWithPathParams() {
         t.get("/hello/Ada").expect(200).body("hi Ada").header("x-seen", "yes");
     }
