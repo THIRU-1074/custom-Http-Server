@@ -440,6 +440,36 @@ class ServerTest {
     }
 
     @Test
+    @Timeout(15)
+    void connectionFloodBeyondTheCapIsAnswered503AndServerRecovers() throws IOException {
+        int cap = 20;
+        server = echoApp(JoltConfig.defaults().maxConnections(cap)).listen(0);
+        List<RawClient> holders = new java.util.ArrayList<>();
+        for (int i = 0; i < cap; i++) {
+            RawClient c = new RawClient(server.port());
+            assertEquals("hello", c.get("/").text());
+            holders.add(c);
+        }
+        int rejected = 0;
+        for (int i = 0; i < 500; i++) {
+            try (var c = new RawClient(server.port())) {
+                if (c.read().status() == 503) {
+                    rejected++;
+                }
+            }
+        }
+        assertEquals(500, rejected);
+        for (RawClient c : holders) {
+            assertEquals("hello", c.get("/").text());
+            c.close();
+        }
+        sleep(100);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("hello", c.get("/").text());
+        }
+    }
+
+    @Test
     void permitIsReleasedWhenAConnectionEnds() throws IOException {
         server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
         for (int i = 0; i < 5; i++) {
