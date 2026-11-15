@@ -2,6 +2,8 @@
 
 Read [CONSTITUTION.md](CONSTITUTION.md) first.
 
+Design contract: [docs/PRINCIPLES.md](docs/PRINCIPLES.md). Size and speed guards: [benchmarks/guard/README.md](benchmarks/guard/README.md).
+
 ## Setup
 
 Requires JDK 21 and Maven. Activate the repo hooks once per clone:
