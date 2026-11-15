@@ -1,9 +1,13 @@
 package in.jolt.internal.http;
 
 import in.jolt.HttpException;
+import in.jolt.HttpStatus;
+import in.jolt.JoltConfig;
+import in.jolt.JsonMapper;
 import in.jolt.Reply;
 import in.jolt.Response;
 import in.jolt.ValidationException;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -12,6 +16,8 @@ public final class Replies {
 
     private static final Set<String> BODY_FRAMING =
             Set.of("content-type", "content-length", "transfer-encoding");
+
+    private static final String PROBLEM = "application/problem+json; charset=utf-8";
 
     private Replies() {}
 
@@ -29,21 +35,69 @@ public final class Replies {
         return original.copyHeadersExcept(BODY_FRAMING);
     }
 
-    /** Error response for {@code reply}, see {@link #errorBase}. */
-    public static Response error(Response original, Reply<?> reply) {
-        return write(errorBase(original), reply);
+    /** Error response for a mapped {@code reply}, see {@link #errorBase}. */
+    public static Response error(Response original, Reply<?> reply, JoltConfig config) {
+        Response base = errorBase(original);
+        return config.problemJson()
+                ? problem(base, reply.status(), reply.body(), null, config.jsonMapper())
+                : write(base, reply);
     }
 
     /** Error response for {@code e}: validation errors as JSON, anything else as plain text. */
-    public static Response error(Response original, HttpException e) {
-        if (e instanceof ValidationException v) {
-            return error(original, new Reply<>(v.status(), Map.of("errors", v.errors())));
+    public static Response error(Response original, HttpException e, JoltConfig config) {
+        Map<String, String> errors = e instanceof ValidationException v ? v.errors() : null;
+        if (config.problemJson()) {
+            return problem(
+                    errorBase(original),
+                    e.status(),
+                    String.valueOf(e.getMessage()),
+                    errors,
+                    config.jsonMapper());
         }
-        return error(original, e.status(), String.valueOf(e.getMessage()));
+        if (errors != null) {
+            return error(original, new Reply<>(e.status(), Map.of("errors", errors)), config);
+        }
+        return error(original, e.status(), String.valueOf(e.getMessage()), config);
     }
 
-    /** Plain-text error response, see {@link #errorBase}. */
-    public static Response error(Response original, int status, String message) {
-        return errorBase(original).status(status).text(message);
+    /** Plain-text (or problem) error response, see {@link #errorBase}. */
+    public static Response error(Response original, int status, String message, JoltConfig config) {
+        Response base = errorBase(original);
+        return config.problemJson()
+                ? problem(base, status, message, null, config.jsonMapper())
+                : base.status(status).text(message);
+    }
+
+    private static Response problem(
+            Response res, int status, Object body, Map<String, String> errors, JsonMapper mapper) {
+        res.status(status);
+        if (status < 200 || status == 204 || status == 304) {
+            return res;
+        }
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put("type", "about:blank");
+        doc.put("title", HttpStatus.reasonFor(status));
+        doc.put("status", status);
+        if (body instanceof Map<?, ?> m) {
+            m.forEach((k, v) -> doc.put(String.valueOf(k), v));
+        } else if (body instanceof CharSequence text) {
+            doc.put("detail", text.toString());
+        } else if (body != null) {
+            extend(doc, body, mapper);
+        }
+        if (errors != null) {
+            doc.put("errors", errors);
+        }
+        doc.put("status", status);
+        return res.json(doc).header("Content-Type", PROBLEM);
+    }
+
+    private static void extend(Map<String, Object> doc, Object body, JsonMapper mapper) {
+        try {
+            mapper.read(mapper.write(body), Map.class)
+                    .forEach((k, v) -> doc.put(String.valueOf(k), v));
+        } catch (IllegalArgumentException e) {
+            doc.put("detail", String.valueOf(body));
+        }
     }
 }

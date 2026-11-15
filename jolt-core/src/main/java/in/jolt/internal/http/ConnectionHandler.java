@@ -51,12 +51,12 @@ public final class ConnectionHandler implements Runnable {
     }
 
     /** Answers 503 and closes the socket; used when the connection limit is reached. */
-    public static void reject(Socket socket) {
+    public static void reject(Socket socket, JoltConfig config) {
         try (socket) {
             socket.setSoTimeout(1000);
             writeError(
                     socket.getOutputStream(),
-                    new Response(null),
+                    config,
                     HttpStatus.SERVICE_UNAVAILABLE.code(),
                     "Server busy");
         } catch (IOException e) {
@@ -92,10 +92,10 @@ public final class ConnectionHandler implements Runnable {
                 try {
                     parsed = HttpParser.parse(in, limits);
                 } catch (HttpException e) {
-                    writeError(out, new Response(config.jsonMapper()), e.status(), e.getMessage());
+                    writeError(out, config, e.status(), e.getMessage());
                     return;
                 } catch (SocketTimeoutException e) {
-                    writeError(out, new Response(config.jsonMapper()), 408, "Request Timeout");
+                    writeError(out, config, 408, "Request Timeout");
                     return;
                 } catch (EOFException e) {
                     return;
@@ -147,11 +147,12 @@ public final class ConnectionHandler implements Runnable {
             dispatcher.dispatch(req, res);
             return res;
         } catch (Throwable t) {
-            return failure(dispatcher, res, req, t);
+            return failure(dispatcher, config, res, req, t);
         }
     }
 
-    private static Response failure(Dispatcher dispatcher, Response res, Request req, Throwable t) {
+    private static Response failure(
+            Dispatcher dispatcher, JoltConfig config, Response res, Request req, Throwable t) {
         try {
             Reply<?> reply = dispatcher.mapError(t);
             if (reply != null) {
@@ -161,31 +162,32 @@ public final class ConnectionHandler implements Runnable {
                             "Mapped exception on " + req.method() + " " + req.path(),
                             t);
                 }
-                return Replies.error(res, reply);
+                return Replies.error(res, reply, config);
             }
         } catch (HttpException e) {
-            return Replies.error(res, e);
+            return Replies.error(res, e, config);
         } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
-            return internalError(res);
+            return internalError(res, config);
         }
         if (t instanceof HttpException e) {
-            return Replies.error(res, e);
+            return Replies.error(res, e, config);
         }
         LOG.log(
                 System.Logger.Level.ERROR,
                 "Unhandled exception on " + req.method() + " " + req.path(),
                 t);
-        return internalError(res);
+        return internalError(res, config);
     }
 
-    private static Response internalError(Response res) {
-        return Replies.error(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
+    private static Response internalError(Response res, JoltConfig config) {
+        return Replies.error(
+                res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error", config);
     }
 
-    private static void writeError(OutputStream out, Response res, int status, String message)
+    private static void writeError(OutputStream out, JoltConfig config, int status, String message)
             throws IOException {
-        res.status(status).text(message);
+        Response res = Replies.error(new Response(config.jsonMapper()), status, message, config);
         ResponseWriter.write(out, res, false, false);
     }
 
