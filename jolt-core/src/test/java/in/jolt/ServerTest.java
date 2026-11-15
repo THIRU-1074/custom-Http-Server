@@ -298,6 +298,25 @@ class ServerTest {
     }
 
     @Test
+    void requestLineOver8KbIs414AndMoreThan100HeadersIs431() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            Reply r = c.send("GET /" + "a".repeat(9000) + " HTTP/1.1\r\n\r\n").read();
+            assertEquals(414, r.status());
+            assertTrue(c.isClosedByPeer());
+        }
+        StringBuilder many = new StringBuilder("GET / HTTP/1.1\r\n");
+        for (int i = 0; i < 101; i++) {
+            many.append("X-").append(i).append(": v\r\n");
+        }
+        try (var c = new RawClient(server.port())) {
+            assertEquals(431, c.send(many.append("\r\n").toString()).read().status());
+        }
+        assertEquals(8 * 1024, JoltConfig.defaults().maxRequestLineBytes());
+        assertEquals(100, JoltConfig.defaults().maxHeaderCount());
+    }
+
+    @Test
     void malformedRequestIs400AndClosesTheConnection() throws IOException {
         server = echoApp(JoltConfig.defaults()).listen(0);
         try (var c = new RawClient(server.port())) {
@@ -487,6 +506,8 @@ class ServerTest {
                         .maxHeaderBytes(2)
                         .maxBodyBytes(3)
                         .maxRequestsPerConnection(4)
+                        .maxRequestLineBytes(7)
+                        .maxHeaderCount(8)
                         .readTimeout(Duration.ofSeconds(5))
                         .keepAliveTimeout(Duration.ofSeconds(6))
                         .jsonMapper(
@@ -503,6 +524,8 @@ class ServerTest {
         assertEquals(2, c.maxHeaderBytes());
         assertEquals(3, c.maxBodyBytes());
         assertEquals(4, c.maxRequestsPerConnection());
+        assertEquals(7, c.maxRequestLineBytes());
+        assertEquals(8, c.maxHeaderCount());
         assertEquals(Duration.ofSeconds(5), c.readTimeout());
         assertEquals(Duration.ofSeconds(6), c.keepAliveTimeout());
         assertEquals("X", new String(c.jsonMapper().write(1), StandardCharsets.UTF_8));

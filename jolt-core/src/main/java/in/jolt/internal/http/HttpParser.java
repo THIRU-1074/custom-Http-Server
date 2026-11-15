@@ -45,7 +45,7 @@ public final class HttpParser {
      * @throws HttpException for malformed or oversized requests
      */
     public static ParsedRequest parse(InputStream in, Limits limits) throws IOException {
-        byte[] head = readHead(in, limits.maxHeaderBytes());
+        byte[] head = readHead(in, limits);
         if (head == null) {
             return null;
         }
@@ -76,6 +76,9 @@ public final class HttpParser {
             throw bad("Bad percent-encoding in path");
         }
 
+        if (lines.length - 1 > limits.maxHeaderCount()) {
+            throw new HttpException(HttpStatus.HEADER_FIELDS_TOO_LARGE, "Too many headers");
+        }
         Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (int i = 1; i < lines.length; i++) {
             int colon = lines[i].indexOf(':');
@@ -92,9 +95,10 @@ public final class HttpParser {
         return new ParsedRequest(method, path, rawQuery, version, headers, body);
     }
 
-    private static byte[] readHead(InputStream in, int max) throws IOException {
+    private static byte[] readHead(InputStream in, Limits limits) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream(512);
         int tail = 0;
+        boolean inRequestLine = true;
         while (true) {
             int b = in.read();
             if (b < 0) {
@@ -107,7 +111,14 @@ public final class HttpParser {
                 continue;
             }
             buf.write(b);
-            if (buf.size() > max) {
+            if (inRequestLine) {
+                if (b == '\n') {
+                    inRequestLine = false;
+                } else if (buf.size() > limits.maxRequestLineBytes()) {
+                    throw new HttpException(HttpStatus.URI_TOO_LONG, "Request line too long");
+                }
+            }
+            if (buf.size() > limits.maxHeaderBytes()) {
                 throw new HttpException(HttpStatus.HEADER_FIELDS_TOO_LARGE, "Headers too large");
             }
             tail = (tail << 8) | b;

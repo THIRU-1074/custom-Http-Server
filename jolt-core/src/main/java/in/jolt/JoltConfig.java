@@ -13,7 +13,9 @@ public record JoltConfig(
         int maxRequestsPerConnection,
         Duration readTimeout,
         Duration keepAliveTimeout,
-        JsonMapper jsonMapper) {
+        JsonMapper jsonMapper,
+        int maxRequestLineBytes,
+        int maxHeaderCount) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -23,7 +25,9 @@ public record JoltConfig(
                 100,
                 Duration.ofSeconds(10),
                 Duration.ofSeconds(5),
-                new BuiltInJsonMapper());
+                new BuiltInJsonMapper(),
+                8 * 1024,
+                100);
     }
 
     public JoltConfig maxConnections(int v) {
@@ -34,7 +38,9 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 readTimeout,
                 keepAliveTimeout,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -45,7 +51,9 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 readTimeout,
                 keepAliveTimeout,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -56,7 +64,9 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 readTimeout,
                 keepAliveTimeout,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -67,7 +77,9 @@ public record JoltConfig(
                 v,
                 readTimeout,
                 keepAliveTimeout,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -78,7 +90,9 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 v,
                 keepAliveTimeout,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -89,7 +103,9 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 readTimeout,
                 v,
-                jsonMapper);
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -100,6 +116,34 @@ public record JoltConfig(
                 maxRequestsPerConnection,
                 readTimeout,
                 keepAliveTimeout,
+                v,
+                maxRequestLineBytes,
+                maxHeaderCount);
+    }
+
+    public JoltConfig maxRequestLineBytes(int v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                v,
+                maxHeaderCount);
+    }
+
+    public JoltConfig maxHeaderCount(int v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
                 v);
     }
 }
