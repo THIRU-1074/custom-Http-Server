@@ -101,6 +101,41 @@ public final class Response {
         }
     }
 
+    /**
+     * Sends {@code relative} resolved under {@code root}; the file must stay inside {@code root}
+     * after normalisation and symlink resolution.
+     *
+     * @throws HttpException 403 if the path escapes the root, 404 if it is not a regular file
+     */
+    public Response sendFile(Path root, String relative) {
+        if (relative.indexOf('\0') >= 0) {
+            throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
+        }
+        try {
+            Path base = root.toRealPath();
+            String rel = relative;
+            while (rel.startsWith("/") || rel.startsWith("\\")) {
+                rel = rel.substring(1);
+            }
+            Path target = base.resolve(rel).normalize();
+            if (!target.startsWith(base)) {
+                throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
+            }
+            Path real = target.toRealPath();
+            if (!real.startsWith(base)) {
+                throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
+            }
+            if (!Files.isRegularFile(real)) {
+                throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
+            }
+            return sendFile(real);
+        } catch (java.nio.file.InvalidPathException | NoSuchFileException e) {
+            throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
+        } catch (IOException e) {
+            throw new HttpException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot read file");
+        }
+    }
+
     public int statusCode() {
         return status;
     }

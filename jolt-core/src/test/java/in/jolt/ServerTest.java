@@ -508,6 +508,37 @@ class ServerTest {
     }
 
     @Test
+    void staticServeRefusesTraversalAndSymlinkEscapes(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws IOException {
+        java.nio.file.Path root = java.nio.file.Files.createDirectory(dir.resolve("pub"));
+        java.nio.file.Files.writeString(root.resolve("a.txt"), "ok");
+        java.nio.file.Files.writeString(dir.resolve("secret.txt"), "nope");
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                    root.resolve("link.txt"), dir.resolve("secret.txt"));
+        } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            // symlinks unavailable on this platform
+        }
+        App app = Jolt.create();
+        app.use("/s", Static.serve("/s", root));
+        app.get("/dl", (req, res) -> res.sendFile(root, req.query("f")));
+        server = app.listen(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("ok", c.get("/s/a.txt").text());
+            assertEquals(404, c.get("/s/none.txt").status());
+            assertEquals(404, c.get("/s/").status());
+            assertEquals(403, c.get("/s/%2e%2e/secret.txt").status());
+            assertEquals(403, c.get("/dl?f=../secret.txt").status());
+            assertEquals(403, c.get("/dl?f=a/../../secret.txt").status());
+            assertEquals(403, c.get("/dl?f=%00").status());
+            assertEquals("ok", c.get("/dl?f=/a.txt").text());
+            if (java.nio.file.Files.isSymbolicLink(root.resolve("link.txt"))) {
+                assertEquals(403, c.get("/s/link.txt").status());
+            }
+        }
+    }
+
+    @Test
     void sendFileTypesByExtension() throws IOException {
         for (String ext :
                 List.of(
