@@ -27,7 +27,7 @@ class AcceptRecoveryTest {
         flaky.bind(new InetSocketAddress(0), 16);
         App app = Jolt.create();
         app.get("/", (req, res) -> res.text("alive"));
-        try (Server server = new Server(app.config(), flaky, app);
+        try (Server server = new Server(app.config(), flaky, app.dispatcher());
                 RawClient c = new RawClient(server.port())) {
             assertEquals("alive", c.get("/").text());
         }

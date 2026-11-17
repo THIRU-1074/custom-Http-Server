@@ -149,6 +149,6 @@ Process so far: test-first features, atomic commits, ADRs 0001-0011 (two files s
 - Performance was measured on one Windows machine; Linux and macOS are unmeasured.
 - The WebSocket implementation has not been run against the Autobahn conformance suite.
 - TLS with client certificates is untested.
-- `JoltTest` cannot stream or upgrade to WebSocket; use a real socket for those.
+- `JoltTest` captures streams and SSE in memory but cannot upgrade to WebSocket; use a real socket for that.
 - Sessions are signed, not encrypted.
 - Published only through JitPack.

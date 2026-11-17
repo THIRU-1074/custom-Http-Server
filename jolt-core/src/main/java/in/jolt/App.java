@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.Health;
 import in.jolt.internal.http.Metrics;
 import in.jolt.internal.http.Resources;
 import in.jolt.internal.openapi.OpenApi;
@@ -20,9 +21,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /** An HTTP application: a {@link Router} that can listen on a port. */
-public final class App extends Router implements ConnectionHandler.Dispatcher {
+public final class App extends Router {
 
     static final class NoRoute extends HttpException {
         NoRoute(String message) {
@@ -38,13 +40,38 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private volatile Views views;
     private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
-    private volatile Metrics metrics;
+    private volatile Metrics collector;
+    private final AppMetrics appMetrics = new AppMetrics();
+    private final Health health = new Health();
     private final List<Server.Hook> hooks = new ArrayList<>();
     private boolean listening;
     private final Tasks tasks = new Tasks();
 
+    private final ConnectionHandler.Dispatcher dispatcher =
+            new ConnectionHandler.Dispatcher() {
+                @Override
+                public void dispatch(Request req, Response res) throws Exception {
+                    App.this.dispatch(req, res);
+                }
+
+                @Override
+                public Reply<?> mapError(Throwable t) {
+                    return App.this.mapError(t);
+                }
+
+                @Override
+                public Metrics metrics() {
+                    return collector;
+                }
+            };
+
     App(JoltConfig config) {
         this.config = config;
+    }
+
+    /** The server's view of this app. Not API. */
+    public ConnectionHandler.Dispatcher dispatcher() {
+        return dispatcher;
     }
 
     public JoltConfig config() {
@@ -56,7 +83,6 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      *
      * @throws HttpException 404 when no route matches
      */
-    @Override
     public void dispatch(Request req, Response res) throws Exception {
         req.app(this);
         res.request(req);
@@ -88,7 +114,6 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         return this;
     }
 
-    @Override
     @SuppressWarnings("unchecked")
     public Reply<?> mapError(Throwable t) {
         boolean http = t instanceof HttpException;
@@ -187,15 +212,35 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         return this;
     }
 
-    @Override
-    public Metrics metrics() {
-        return metrics;
+    /** App-defined counters and gauges, added to {@code /_jolt/metrics} once it is exposed. */
+    public AppMetrics metrics() {
+        return appMetrics;
+    }
+
+    /** As {@link #health(String, Supplier, Duration)} with a 2 second timeout. */
+    public App health(String name, Supplier<Boolean> check) {
+        return health(name, check, Duration.ofSeconds(2));
     }
 
     /**
-     * Opt-in monitoring: {@code GET /_jolt/health} ({@code {"status":"UP"}}) and {@code GET
-     * /_jolt/metrics} (Prometheus text: request counts by method and status class, latency
-     * histogram, connections, streams, body bytes). Counts the status each client actually
+     * Registers a health check for {@code /_jolt/health}. The check passes by returning {@code
+     * true}; {@code false}, {@code null}, a throw or exceeding {@code timeout} marks it DOWN. The
+     * response never carries error details. Callable before or after {@link #exposeMetrics()} and
+     * {@link #listen}.
+     *
+     * @throws IllegalArgumentException for an invalid name or non-positive timeout
+     * @throws IllegalStateException if the name is already registered
+     */
+    public App health(String name, Supplier<Boolean> check, Duration timeout) {
+        health.add(name, check, timeout);
+        return this;
+    }
+
+    /**
+     * Opt-in monitoring: {@code GET /_jolt/health} ({@code {"status":"UP"}}, or 200 or 503 with
+     * {@code checks} once {@link #health} checks exist) and {@code GET /_jolt/metrics} (Prometheus
+     * text: request counts by method and status class, latency histogram, connections, streams,
+     * body bytes, then the {@link #metrics()} series). Counts the status each client actually
      * received, after error mappers; streams and WebSockets are counted separately and stay out of
      * the latency histogram.
      */
@@ -208,16 +253,23 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      * call has no effect, whatever its guard. May be called after {@link #listen}.
      */
     public App exposeMetrics(Middleware guard) {
-        if (metrics != null) {
+        if (collector != null) {
             return this;
         }
         Metrics m = new Metrics();
         m.section(tasks::render);
-        metrics = m;
-        get("/_jolt/health", (req, res) -> res.json(Map.of("status", "UP")));
+        collector = m;
+        get(
+                "/_jolt/health",
+                (req, res) -> {
+                    Health.Report report = health.run();
+                    res.status(report.up() ? 200 : 503).json(report.body());
+                });
         Handler scrape =
                 (req, res) ->
-                        res.send(m.render().getBytes(StandardCharsets.UTF_8))
+                        res.send(
+                                        (m.render() + appMetrics.render())
+                                                .getBytes(StandardCharsets.UTF_8))
                                 .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
         if (guard == null) {
             get("/_jolt/metrics", scrape);
@@ -316,7 +368,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         listening = true;
         boolean started = false;
         try {
-            Server server = Server.start(config, port, this, List.copyOf(hooks));
+            Server server = Server.start(config, port, dispatcher, List.copyOf(hooks));
             started = true;
             return server;
         } catch (IOException e) {
