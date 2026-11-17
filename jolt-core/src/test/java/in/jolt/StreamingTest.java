@@ -173,6 +173,23 @@ class StreamingTest {
     }
 
     @Test
+    void handlerFailureTruncatesTheBodyInsteadOfEndingItCleanly() throws Exception {
+        App app = Jolt.create();
+        app.get(
+                "/s",
+                (req, res) -> {
+                    res.sse().event("a", "1");
+                    throw new IllegalStateException("boom");
+                });
+        try (Server server = app.listen(0);
+                Socket c = open(server)) {
+            String raw = readAll(c.getInputStream());
+            assertTrue(raw.contains("event: a"), raw);
+            assertTrue(!raw.endsWith("0\r\n\r\n"), "no terminating chunk after a failure: " + raw);
+        }
+    }
+
+    @Test
     void totalLimitEndsAStreamThatKeepsWriting() throws Exception {
         CountDownLatch ended = new CountDownLatch(1);
         App app =

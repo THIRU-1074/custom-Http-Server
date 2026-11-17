@@ -50,6 +50,7 @@ public final class ConnectionHandler implements Runnable {
     private InputStream in;
     private boolean taken;
     private boolean websocket;
+    private boolean failed;
     private boolean http10;
     private boolean head;
     private StreamSink sink;
@@ -235,7 +236,11 @@ public final class ConnectionHandler implements Runnable {
                 Response res = handle(parsed);
                 if (taken) {
                     if (sink != null) {
-                        sink.close();
+                        if (failed) {
+                            sink.abort();
+                        } else {
+                            sink.close();
+                        }
                     }
                     return;
                 }
@@ -299,7 +304,18 @@ public final class ConnectionHandler implements Runnable {
             return res;
         } catch (Throwable t) {
             if (host != null && host.taken) {
-                LOG.log(System.Logger.Level.DEBUG, "Streaming handler ended with " + t, t);
+                host.failed = true;
+                if (t instanceof IOException) {
+                    LOG.log(System.Logger.Level.DEBUG, "Streaming connection ended", t);
+                } else {
+                    LOG.log(
+                            System.Logger.Level.WARNING,
+                            "Handler failed after streaming began on "
+                                    + req.method()
+                                    + " "
+                                    + req.path(),
+                            t);
+                }
                 return res;
             }
             return failure(dispatcher, config, res, req, t);
