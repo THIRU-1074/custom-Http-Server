@@ -1,12 +1,14 @@
 package in.jolt;
 
 import in.jolt.internal.http.Codec;
+import in.jolt.internal.view.Views;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -33,6 +35,7 @@ public final class Request implements Params {
     private Map<String, String> cookies;
     private Map<String, String> form;
     private final String remoteAddress;
+    private App app;
     private final String scheme;
     private final String host;
     private final JoltConfig config;
@@ -231,10 +234,46 @@ public final class Request implements Params {
             throw new HttpException(HttpStatus.BAD_REQUEST, "Body is empty");
         }
         try {
-            return mapper.read(body, type);
+            BodyCodec codec = codec();
+            return codec == null ? mapper.read(body, type) : codec.read(body, type);
         } catch (IllegalArgumentException e) {
             throw new HttpException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    private BodyCodec codec() {
+        List<BodyCodec> codecs = codecs();
+        if (codecs.isEmpty()) {
+            return null;
+        }
+        String type = headers.getOrDefault("Content-Type", "");
+        int semi = type.indexOf(';');
+        String media = (semi < 0 ? type : type.substring(0, semi)).strip().toLowerCase(Locale.ROOT);
+        for (BodyCodec c : codecs) {
+            if (c.mediaType().equalsIgnoreCase(media)) {
+                return c;
+            }
+        }
+        if (media.isEmpty() || media.equals("application/json") || media.endsWith("+json")) {
+            return null;
+        }
+        throw new HttpException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type");
+    }
+
+    List<BodyCodec> codecs() {
+        return app == null ? List.of() : app.codecs();
+    }
+
+    String rawQuery() {
+        return rawQuery;
+    }
+
+    Views views() {
+        return app == null ? null : app.views();
+    }
+
+    void app(App app) {
+        this.app = app;
     }
 
     /** IP address of the connected peer, or {@code null} when unknown. */
