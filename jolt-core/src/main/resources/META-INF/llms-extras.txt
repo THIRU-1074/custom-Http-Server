@@ -17,3 +17,4 @@ Optional and advanced features. The core API is in llms.txt. One compact line pe
 ## Dev and tooling
 
 ## Modules
+jolt-db (in.jolt:jolt-db, JDK java.sql only): Db db=Db.open(jdbcUrl[,size=8,timeout=5s]); db.query(sql,rs->..,args..)->List; queryOne->Optional; update->rows; db.inTransaction(tx->{tx.update(..);return x;}) rolls back on throw; ? params only; close() the pool.

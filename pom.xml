@@ -33,6 +33,7 @@
     <module>jolt-core</module>
     <module>jolt-auth</module>
     <module>jolt-mcp</module>
+    <module>jolt-db</module>
     <module>examples/attendance</module>
     <module>examples/webhook</module>
     <module>examples/todos-solid</module>
@@ -66,6 +67,11 @@
       <dependency>
         <groupId>in.jolt</groupId>
         <artifactId>jolt-mcp</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>in.jolt</groupId>
+        <artifactId>jolt-db</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
