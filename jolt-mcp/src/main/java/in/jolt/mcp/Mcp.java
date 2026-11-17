@@ -7,14 +7,20 @@ import in.jolt.JsonMapper;
 import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.Route;
+import in.jolt.internal.limit.FixedWindow;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 /**
  * Exposes routes tagged with {@code .tool("description")} as MCP tools over Streamable HTTP
@@ -24,20 +30,41 @@ public final class Mcp {
 
     private static final String PROTOCOL = "2025-06-18";
     private static final Set<String> BODY_METHODS = Set.of("POST", "PUT", "PATCH");
+    private static final List<String> FORWARDED =
+            List.of("Authorization", "Cookie", "X-Request-Id", "traceparent", "tracestate");
+    private static final int MAX_AGENTS = 10_000;
+    private static final int MAX_CLIENT_LABEL = 100;
+    private static final System.Logger LOG = System.getLogger("in.jolt.mcp");
 
     private final App app;
     private final McpOptions options;
     private final JsonMapper mapper;
+    private final Consumer<ToolCall> audit;
+    private final List<FixedWindow> budgets = new ArrayList<>();
 
-    private Mcp(App app, McpOptions options) {
+    private Mcp(App app, McpOptions options, LongSupplier nanos) {
         this.app = app;
         this.options = options;
         this.mapper = app.config().jsonMapper();
+        this.audit = options.audit() != null ? options.audit() : this::log;
+        for (McpOptions.Budget b : options.budgets()) {
+            long windowNanos;
+            try {
+                windowNanos = b.window().toNanos();
+            } catch (ArithmeticException e) {
+                throw new IllegalArgumentException("budget window is too large", e);
+            }
+            budgets.add(new FixedWindow(b.calls(), windowNanos, MAX_AGENTS, nanos));
+        }
     }
 
     /** Registers the MCP endpoint at {@code path}. Nothing is exposed until you call this. */
     public static void expose(App app, String path, McpOptions options) {
-        Mcp mcp = new Mcp(app, options);
+        expose(app, path, options, System::nanoTime);
+    }
+
+    static void expose(App app, String path, McpOptions options, LongSupplier nanos) {
+        Mcp mcp = new Mcp(app, options, nanos);
         app.use(
                 path,
                 (req, res, next) -> {
@@ -148,9 +175,67 @@ public final class Mcp {
     private Map<String, Object> callTool(Request outer, Object id, Map<?, ?> params) {
         List<Route> tools = tools();
         Map<String, String> names = toolNames(tools);
-        String target = names.get(String.valueOf(params.get("name")));
+        String toolName = String.valueOf(params.get("name"));
+        String target = names.get(toolName);
         if (target == null) {
             return error(id, -32602, "Unknown tool: " + params.get("name"));
+        }
+        long start = System.nanoTime();
+        String agent = agent(outer);
+        Map<?, ?> args = params.get("arguments") instanceof Map<?, ?> a ? a : Map.of();
+        int[] status = {500};
+        try {
+            return runTool(outer, id, tools, toolName, target, agent, args, status);
+        } finally {
+            String client = outer.header("User-Agent");
+            if (client != null && client.length() > MAX_CLIENT_LABEL) {
+                client = client.substring(0, MAX_CLIENT_LABEL);
+            }
+            int space = target.indexOf(' ');
+            audit.accept(
+                    new ToolCall(
+                            Instant.now(),
+                            agent,
+                            client,
+                            toolName,
+                            target.substring(0, space),
+                            target.substring(space + 1),
+                            status[0],
+                            Duration.ofNanos(System.nanoTime() - start),
+                            outer.id(),
+                            options.auditArguments()
+                                    ? Collections.unmodifiableMap(new LinkedHashMap<>(args))
+                                    : null));
+        }
+    }
+
+    private Map<String, Object> runTool(
+            Request outer,
+            Object id,
+            List<Route> tools,
+            String toolName,
+            String target,
+            String agent,
+            Map<?, ?> args,
+            int[] status) {
+        for (int i = 0; i < budgets.size(); i++) {
+            McpOptions.Budget b = options.budgets().get(i);
+            if (!b.tool().equals("*") && !b.tool().equals(toolName)) {
+                continue;
+            }
+            long retry = budgets.get(i).acquire(agent);
+            if (retry >= 0) {
+                status[0] = 429;
+                return toolError(
+                        id,
+                        "Budget exceeded for agent "
+                                + agent
+                                + " on "
+                                + toolName
+                                + "; retry in "
+                                + FixedWindow.seconds(retry)
+                                + "s");
+            }
         }
         Route route = null;
         for (Route r : tools) {
@@ -158,7 +243,6 @@ public final class Mcp {
                 route = r;
             }
         }
-        Map<?, ?> args = params.get("arguments") instanceof Map<?, ?> a ? a : Map.of();
         StringBuilder path = new StringBuilder();
         for (String seg : route.path().split("/")) {
             if (seg.isEmpty()) {
@@ -167,6 +251,7 @@ public final class Mcp {
             if (seg.startsWith(":")) {
                 Object v = args.get(seg.substring(1));
                 if (v == null || String.valueOf(v).contains("/")) {
+                    status[0] = 400;
                     return error(id, -32602, "Missing or invalid argument: " + seg.substring(1));
                 }
                 seg = String.valueOf(v);
@@ -188,7 +273,7 @@ public final class Mcp {
                     });
         }
         Map<String, String> headers = new LinkedHashMap<>();
-        for (String h : List.of("Authorization", "Cookie")) {
+        for (String h : FORWARDED) {
             if (outer.header(h) != null) {
                 headers.put(h, outer.header(h));
             }
@@ -214,6 +299,7 @@ public final class Mcp {
         } catch (Exception e) {
             out = new Response(mapper).status(500).text("Internal Server Error");
         }
+        status[0] = out.statusCode();
         boolean failed = out.statusCode() >= 400;
         String text = new String(out.body(), StandardCharsets.UTF_8);
         if (failed) {
@@ -226,6 +312,44 @@ public final class Mcp {
                         List.of(Map.of("type", "text", "text", text)),
                         "isError",
                         failed));
+    }
+
+    private String agent(Request req) {
+        String a = options.agent() == null ? null : options.agent().apply(req);
+        return a == null || a.isBlank() ? "anonymous" : a;
+    }
+
+    private void log(ToolCall c) {
+        StringBuilder line =
+                new StringBuilder("tool=")
+                        .append(c.tool())
+                        .append(" agent=")
+                        .append(c.agent())
+                        .append(" status=")
+                        .append(c.status())
+                        .append(' ')
+                        .append(c.took().toMillis())
+                        .append("ms");
+        if (c.requestId() != null) {
+            line.append(" id=").append(c.requestId());
+        }
+        if (c.arguments() != null) {
+            line.append(" args=")
+                    .append(new String(mapper.write(c.arguments()), StandardCharsets.UTF_8));
+        }
+        LOG.log(System.Logger.Level.INFO, printable(line.toString()));
+    }
+
+    private static String printable(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        s.codePoints().forEach(cp -> sb.appendCodePoint(Character.isISOControl(cp) ? '?' : cp));
+        return sb.toString();
+    }
+
+    private static Map<String, Object> toolError(Object id, String text) {
+        return result(
+                id,
+                Map.of("content", List.of(Map.of("type", "text", "text", text)), "isError", true));
     }
 
     private static List<String> pathParams(String path) {

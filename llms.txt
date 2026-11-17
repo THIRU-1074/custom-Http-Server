@@ -92,7 +92,7 @@ Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper
     Mcp.expose(app, "/mcp", McpOptions.defaults()
         .allowOrigins("http://localhost:3000")   // Origin allowlist, else 403
         .auth(jwt.middleware()));                // optional guard on /mcp
-Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path params by name, "query" object, "body" object. Calls run through normal middleware; Authorization and Cookie headers are forwarded. Tool name = method_path, e.g. get_todos_id.
+Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path params by name, "query" object, "body" object. Calls run through normal middleware; Authorization, Cookie, X-Request-Id and traceparent are forwarded. Tool name = method_path, e.g. get_todos_id.
 
 ## Complete example
     record Todo(String title) {}

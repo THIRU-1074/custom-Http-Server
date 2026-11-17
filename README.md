@@ -82,9 +82,10 @@ flowchart LR
 
 Jolt aims to be cheap for an AI coding tool to use correctly.
 
-- [llms.txt](llms.txt): a core API cheat sheet (2054 tokens, limit 2100). Optional features live in [llms-extras.txt](llms-extras.txt) (1647 tokens, limit 3200).
+- [llms.txt](llms.txt): a core API cheat sheet (2062 tokens, limit 2100). Optional features live in [llms-extras.txt](llms-extras.txt) (2139 tokens, limit 3200).
 - `JoltTest.of(app)`: requests without a socket, so an agent can test what it wrote.
 - `jolt-mcp`: expose tagged routes as MCP tools. Checked with MCP Inspector 1.0.5 only.
+- Agent identity: name the calling agent, audit every tool call and cap calls per agent with `McpOptions.agent`, `.audit` and `.budget`.
 - Guards in CI: `LlmsTxtBudgetTest` and `token-guard.py`. `perf-guard.py` runs locally.
 
 Token cost of the same todos API (auth, validation, one test), counted with tiktoken `cl100k_base` ([method and caveats](benchmarks/RESULTS.md)):

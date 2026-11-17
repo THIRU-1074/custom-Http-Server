@@ -16,12 +16,14 @@ jolt-core/                   zero runtime dependencies; the only module users mu
                              TrustedProxies, Metrics, StreamGuard, WebSocketConnection
   in.jolt.internal.routing   RouteTrie, Suggest (did-you-mean 404)
   in.jolt.internal.json      Json, BuiltInJsonMapper (behind the JsonMapper SPI)
+  in.jolt.internal.limit     FixedWindow (shared by RateLimit and MCP budgets)
   in.jolt.internal.openapi   OpenApi
   in.jolt.internal.view      Views (templating)
   in.jolt.test               JoltTest (in-memory test client; public)
 jolt-auth/                   JwtAuth, BasicAuth, Auth (roles), PasswordHasher, RefreshTokens,
                              RefreshStore (depends on core and java-jwt)
-jolt-mcp/                    Mcp, McpOptions: tagged routes as MCP tools (depends on core only)
+jolt-mcp/                    Mcp, McpOptions, ToolCall: tagged routes as MCP tools, with agent
+                             identity, audit and per-agent budgets (depends on core only)
 jolt-db/                     Db: bounded JDBC pool, parameterized queries, transactions
                              (JDK java.sql only; sqlite-jdbc is test scope)
 jolt-dev/                    Dev (restart runner), DevErrors (opt-in error page)

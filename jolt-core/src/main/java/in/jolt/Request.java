@@ -319,6 +319,14 @@ public final class Request implements Params {
         return (String) attributes.get(RequestId.ATTRIBUTE);
     }
 
+    /**
+     * Trace id from a valid W3C {@code traceparent}, set by {@link RequestId#middleware()}, or
+     * null.
+     */
+    public String traceId() {
+        return (String) attributes.get(RequestId.TRACE_ATTRIBUTE);
+    }
+
     /** Per-request value set by middleware, or {@code null}. */
     public Object attr(String name) {
         return attributes.get(name);

@@ -135,4 +135,70 @@ class RequestIdTest {
         JoltTest.of(app).get("/hi").expect(200);
         assertFalse(log.lines.get(0).contains("id="));
     }
+
+    private static App traceApp() {
+        App app = Jolt.create();
+        app.use(RequestId.middleware());
+        app.get("/t", (req, res) -> res.text(String.valueOf(req.traceId())));
+        return app;
+    }
+
+    @Test
+    void readsTheTraceIdFromAValidTraceparent() {
+        JoltTest.of(traceApp())
+                .get("/t")
+                .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+                .expect(200)
+                .body("4bf92f3577b34da6a3ce929d0e0e4736");
+    }
+
+    @Test
+    void acceptsFutureVersionsWithExtraFields() {
+        JoltTest.of(traceApp())
+                .get("/t")
+                .header(
+                        "traceparent",
+                        "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra")
+                .expect(200)
+                .body("4bf92f3577b34da6a3ce929d0e0e4736");
+    }
+
+    @Test
+    void ignoresInvalidTraceparents() {
+        String[] bad = {
+            "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            "00-00000000000000000000000000000000-00f067aa0ba902b7-01",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01",
+            "00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-x",
+            "00-4bf92f3577b34da6a3ce929d0e0e473-00f067aa0ba902b7-01",
+            "garbage"
+        };
+        for (String value : bad) {
+            assertEquals(
+                    "null",
+                    JoltTest.of(traceApp())
+                            .get("/t")
+                            .header("traceparent", value)
+                            .expect(200)
+                            .text(),
+                    value);
+        }
+    }
+
+    @Test
+    void loggerIncludesTheTraceId() {
+        Capture log = new Capture();
+        App app = Jolt.create();
+        app.use(RequestId.middleware());
+        app.use(Logger.requests(log));
+        app.get("/hi", (req, res) -> res.text("ok"));
+        JoltTest.of(app)
+                .get("/hi")
+                .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+                .expect(200);
+        assertTrue(
+                log.lines.get(0).endsWith(" trace=4bf92f3577b34da6a3ce929d0e0e4736"),
+                log.lines.get(0));
+    }
 }
