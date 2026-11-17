@@ -1,10 +1,13 @@
 package in.jolt;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -195,11 +198,24 @@ public final class Response {
             Instant modified = Files.getLastModifiedTime(file).toInstant();
             header("ETag", "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"");
             header("Last-Modified", HTTP_DATE.format(modified));
+            header("Accept-Ranges", "bytes");
+            String type = contentType(file);
             if (notModified(modified)) {
                 status = 304;
-                return send(new byte[0], contentType(file));
+                return send(new byte[0], type);
             }
-            return send(Files.readAllBytes(file), contentType(file));
+            long[] range = range(size);
+            if (range == null) {
+                return send(Files.readAllBytes(file), type);
+            }
+            if (range.length == 0) {
+                status = 416;
+                header("Content-Range", "bytes */" + size);
+                return send(new byte[0], type);
+            }
+            status = 206;
+            header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
+            return send(readRange(file, range[0], (int) (range[1] - range[0] + 1)), type);
         } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         } catch (IOException e) {
@@ -262,6 +278,65 @@ public final class Response {
     Response request(Request request) {
         this.req = request;
         return this;
+    }
+
+    private long[] range(long size) {
+        String spec = req == null ? null : req.header("Range");
+        if (spec == null
+                || status != 200
+                || req.header("If-Range") != null
+                || !(req.method().equals("GET") || req.method().equals("HEAD"))
+                || !spec.regionMatches(true, 0, "bytes=", 0, 6)
+                || spec.indexOf(',') >= 0) {
+            return null;
+        }
+        String r = spec.substring(6).strip();
+        int dash = r.indexOf('-');
+        if (dash < 0) {
+            return null;
+        }
+        try {
+            String from = r.substring(0, dash).strip();
+            String to = r.substring(dash + 1).strip();
+            if (from.isEmpty()) {
+                long n = num(to);
+                return n == 0 || size == 0
+                        ? new long[0]
+                        : new long[] {Math.max(0, size - n), size - 1};
+            }
+            long start = num(from);
+            long end = size - 1;
+            if (!to.isEmpty()) {
+                long last = num(to);
+                if (last < start) {
+                    return null;
+                }
+                end = Math.min(last, end);
+            }
+            return start >= size ? new long[0] : new long[] {start, end};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static long num(String digits) {
+        for (int i = 0; i < digits.length(); i++) {
+            if (digits.charAt(i) < '0' || digits.charAt(i) > '9') {
+                throw new NumberFormatException(digits);
+            }
+        }
+        return Long.parseLong(digits);
+    }
+
+    private static byte[] readRange(Path file, long start, int length) throws IOException {
+        try (var ch = FileChannel.open(file, StandardOpenOption.READ)) {
+            ByteBuffer buf = ByteBuffer.allocate(length);
+            ch.position(start);
+            while (buf.hasRemaining() && ch.read(buf) >= 0) {
+                // keep reading until the range is full or the file ends
+            }
+            return buf.array();
+        }
     }
 
     private boolean notModified(Instant lastModified) {
@@ -417,20 +492,33 @@ public final class Response {
     }
 
     private static String contentType(Path file) {
-        String name = file.getFileName().toString().toLowerCase();
+        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
         int dot = name.lastIndexOf('.');
         return switch (dot < 0 ? "" : name.substring(dot + 1)) {
             case "html", "htm" -> "text/html; charset=utf-8";
             case "css" -> "text/css; charset=utf-8";
-            case "js" -> "text/javascript; charset=utf-8";
-            case "json" -> "application/json; charset=utf-8";
+            case "js", "mjs" -> "text/javascript; charset=utf-8";
+            case "json", "map" -> "application/json; charset=utf-8";
             case "txt" -> "text/plain; charset=utf-8";
+            case "csv" -> "text/csv; charset=utf-8";
+            case "xml" -> "application/xml; charset=utf-8";
+            case "svg" -> "image/svg+xml";
             case "png" -> "image/png";
             case "jpg", "jpeg" -> "image/jpeg";
             case "gif" -> "image/gif";
-            case "svg" -> "image/svg+xml";
+            case "webp" -> "image/webp";
+            case "avif" -> "image/avif";
             case "ico" -> "image/x-icon";
+            case "woff" -> "font/woff";
+            case "woff2" -> "font/woff2";
+            case "ttf" -> "font/ttf";
+            case "otf" -> "font/otf";
             case "pdf" -> "application/pdf";
+            case "zip" -> "application/zip";
+            case "mp3" -> "audio/mpeg";
+            case "mp4" -> "video/mp4";
+            case "webm" -> "video/webm";
+            case "wasm" -> "application/wasm";
             default -> "application/octet-stream";
         };
     }
