@@ -255,6 +255,69 @@ class StreamingTest {
                 () -> JoltConfig.defaults().streamTimeouts(Duration.ZERO, Duration.ZERO));
     }
 
+    private static String exchange(Server server, String request) throws Exception {
+        try (Socket s = new Socket("127.0.0.1", server.port())) {
+            s.setSoTimeout(5000);
+            s.getOutputStream().write(request.getBytes(StandardCharsets.ISO_8859_1));
+            return readAll(s.getInputStream());
+        }
+    }
+
+    @Test
+    void http10ClientsGetACloseDelimitedBody() throws Exception {
+        App app = Jolt.create();
+        app.get("/s", (req, res) -> res.stream().write("hello").write(" world"));
+        try (Server server = app.listen(0)) {
+            String raw = exchange(server, "GET /s HTTP/1.0\r\n" + "\r\n");
+            assertTrue(raw.startsWith("HTTP/1.1 200"), raw);
+            assertTrue(!raw.contains("Transfer-Encoding"), raw);
+            assertTrue(raw.contains("Connection: close"), raw);
+            assertTrue(raw.endsWith("\r\n\r\nhello world"), raw);
+        }
+    }
+
+    @Test
+    void headRequestsGetTheHeadOnly() throws Exception {
+        CountDownLatch ran = new CountDownLatch(1);
+        App app = Jolt.create();
+        app.get(
+                "/s",
+                (req, res) -> {
+                    res.sse().event("x", "y").close();
+                    ran.countDown();
+                });
+        try (Server server = app.listen(0)) {
+            String raw = exchange(server, "HEAD /s HTTP/1.1\r\nHost: t\r\n\r\n");
+            assertTrue(raw.startsWith("HTTP/1.1 200"), raw);
+            assertTrue(raw.contains("text/event-stream"), raw);
+            assertTrue(raw.endsWith("\r\n\r\n"), "no body after the head: " + raw);
+            assertTrue(ran.await(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void noBodyStatusesCannotBeStreamed() throws Exception {
+        AtomicReference<Throwable> seen = new AtomicReference<>();
+        App app = Jolt.create();
+        app.get(
+                "/s",
+                (req, res) -> {
+                    try {
+                        res.status(204).stream();
+                    } catch (IllegalStateException e) {
+                        seen.set(e);
+                    }
+                    res.status(200).text("plain");
+                });
+        try (Server server = app.listen(0)) {
+            String raw =
+                    exchange(server, "GET /s HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
+            assertTrue(raw.endsWith("plain"), raw);
+        }
+        assertTrue(seen.get() instanceof IllegalStateException);
+        assertTrue(seen.get().getMessage().contains("204"));
+    }
+
     private static String unchunk(String raw) {
         StringBuilder out = new StringBuilder();
         int i = 0;
