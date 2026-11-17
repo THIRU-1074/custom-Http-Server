@@ -58,6 +58,10 @@ public final class Response {
         return this;
     }
 
+    boolean secureCookies() {
+        return secureCookies;
+    }
+
     /** Caps the size of files sent by {@code sendFile}; the server sets this from the config. */
     public Response maxFileBytes(long limit) {
         this.maxFileBytes = limit;

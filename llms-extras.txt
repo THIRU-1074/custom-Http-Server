@@ -15,6 +15,7 @@ Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the n
 
 ## Security
 app.use(Sessions.signed(secret32+)) keeps a Session in an HMAC-SHA256 cookie (signed, not encrypted): Sessions.of(req).get/put/remove/clear/isNew; values String, finite number, boolean; 3 KB cap throws IllegalStateException; .maxAge(1h, renewed at half) .previous(oldKeys) .cookie(name); HttpOnly, SameSite=Lax, Secure per config; cookie set only on change.
+app.use(Csrf.protect()): POST/PUT/PATCH/DELETE with cookies need Sec-Fetch-Site same-origin|same-site|none, else Origin/Referer matching Host, else 403; cookieless API calls skip unless .strict(); .token() adds double-submit (csrf cookie == X-CSRF-Token header or _csrf form field); Csrf.token(req) for forms.
 
 ## Auth
 
