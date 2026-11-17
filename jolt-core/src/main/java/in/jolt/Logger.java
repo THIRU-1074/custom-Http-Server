@@ -6,8 +6,8 @@ public final class Logger {
     private Logger() {}
 
     /**
-     * Logs {@code METHOD /path STATUS NNms} at INFO to the {@code in.jolt.requests} System.Logger.
-     * Query strings, headers, cookies and bodies are never logged.
+     * Logs {@code METHOD /path STATUS NNms [id=...]} at INFO to the {@code in.jolt.requests}
+     * System.Logger. Query strings, headers, cookies and bodies are never logged.
      */
     public static Middleware requests() {
         return requests(System.getLogger("in.jolt.requests"));
@@ -25,6 +25,7 @@ public final class Logger {
                 throw e;
             } finally {
                 long ms = (System.nanoTime() - start) / 1_000_000;
+                String id = req.id();
                 log.log(
                         System.Logger.Level.INFO,
                         clean(req.method())
@@ -34,7 +35,8 @@ public final class Logger {
                                 + status
                                 + " "
                                 + ms
-                                + "ms");
+                                + "ms"
+                                + (id == null ? "" : " id=" + clean(id)));
             }
         };
     }
