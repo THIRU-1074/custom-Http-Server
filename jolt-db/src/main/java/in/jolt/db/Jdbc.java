@@ -11,9 +11,10 @@ final class Jdbc {
 
     private Jdbc() {}
 
-    static <T> List<T> query(Connection c, String sql, RowMapper<T> mapper, Object[] args)
+    static <T> List<T> query(
+            Connection c, int timeout, String sql, RowMapper<T> mapper, Object[] args)
             throws SQLException {
-        try (PreparedStatement ps = bind(c, sql, args);
+        try (PreparedStatement ps = bind(c, timeout, sql, args);
                 var rs = ps.executeQuery()) {
             List<T> out = new ArrayList<>();
             while (rs.next()) out.add(mapper.map(rs));
@@ -21,24 +22,26 @@ final class Jdbc {
         }
     }
 
-    static <T> Optional<T> queryOne(Connection c, String sql, RowMapper<T> mapper, Object[] args)
+    static <T> Optional<T> queryOne(
+            Connection c, int timeout, String sql, RowMapper<T> mapper, Object[] args)
             throws SQLException {
-        try (PreparedStatement ps = bind(c, sql, args);
+        try (PreparedStatement ps = bind(c, timeout, sql, args);
                 var rs = ps.executeQuery()) {
             return rs.next() ? Optional.ofNullable(mapper.map(rs)) : Optional.empty();
         }
     }
 
-    static int update(Connection c, String sql, Object[] args) throws SQLException {
-        try (PreparedStatement ps = bind(c, sql, args)) {
+    static int update(Connection c, int timeout, String sql, Object[] args) throws SQLException {
+        try (PreparedStatement ps = bind(c, timeout, sql, args)) {
             return ps.executeUpdate();
         }
     }
 
-    private static PreparedStatement bind(Connection c, String sql, Object[] args)
+    private static PreparedStatement bind(Connection c, int timeout, String sql, Object[] args)
             throws SQLException {
         PreparedStatement ps = c.prepareStatement(sql);
         try {
+            ps.setQueryTimeout(timeout);
             for (int i = 0; i < args.length; i++) ps.setObject(i + 1, args[i]);
             return ps;
         } catch (SQLException | RuntimeException e) {
