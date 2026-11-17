@@ -2,10 +2,10 @@ package in.jolt.test;
 
 import in.jolt.App;
 import in.jolt.HttpStatus;
-import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.internal.http.Codec;
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.TrustedProxies;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.TreeMap;
@@ -124,16 +124,16 @@ public final class JoltTest {
             if (body.length > 0) {
                 headers.put("Content-Length", String.valueOf(body.length));
             }
-            var mapper = app.config().jsonMapper();
             var req =
-                    new Request(
-                            method,
-                            Codec.percentDecode(rawPath, false),
-                            rawQuery,
-                            headers,
-                            body,
-                            mapper,
-                            remoteAddress);
+                    TrustedProxies.from(app.config())
+                            .request(
+                                    app.config(),
+                                    method,
+                                    Codec.percentDecode(rawPath, false),
+                                    rawQuery,
+                                    headers,
+                                    body,
+                                    remoteAddress);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             return new Result(app, method + " " + path, res);
         }

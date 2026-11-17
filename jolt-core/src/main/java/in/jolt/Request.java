@@ -25,6 +25,8 @@ public final class Request implements Params {
     private Map<String, String> cookies;
     private Map<String, String> form;
     private final String remoteAddress;
+    private final String scheme;
+    private final String host;
     private JoltConfig config;
     private List<Part> parts;
 
@@ -47,7 +49,23 @@ public final class Request implements Params {
             byte[] body,
             JsonMapper mapper,
             String remoteAddress) {
+        this(method, path, rawQuery, headers, body, mapper, remoteAddress, null, null);
+    }
+
+    /** As above, with the scheme and host the server resolved; {@code null} means the defaults. */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress,
+            String scheme,
+            String host) {
         this.remoteAddress = remoteAddress;
+        this.scheme = scheme;
+        this.host = host;
         this.method = method;
         this.path = path;
         this.rawQuery = rawQuery == null ? "" : rawQuery;
@@ -195,6 +213,16 @@ public final class Request implements Params {
     /** IP address of the connected peer, or {@code null} when unknown. */
     public String remoteAddress() {
         return remoteAddress;
+    }
+
+    /** {@code "http"} or {@code "https"}: the forwarded scheme from a trusted proxy, else http. */
+    public String scheme() {
+        return scheme == null ? "http" : scheme;
+    }
+
+    /** The forwarded host from a trusted proxy, else the {@code Host} header, or {@code null}. */
+    public String host() {
+        return host == null ? headers.get("Host") : host;
     }
 
     /** Per-request value set by middleware, or {@code null}. */

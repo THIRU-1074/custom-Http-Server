@@ -1,7 +1,9 @@
 package in.jolt;
 
+import in.jolt.internal.http.TrustedProxies;
 import in.jolt.internal.json.BuiltInJsonMapper;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,7 +23,8 @@ public record JoltConfig(
         long maxStaticFileBytes,
         String bindAddress,
         int maxPartBytes,
-        int maxParts) {
+        int maxParts,
+        List<String> trustedProxies) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -38,7 +41,8 @@ public record JoltConfig(
                 10L * 1024 * 1024,
                 "127.0.0.1",
                 1024 * 1024,
-                10);
+                10,
+                List.of());
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -112,7 +116,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -130,7 +135,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -148,7 +154,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -166,7 +173,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -184,7 +192,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -202,7 +211,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -220,7 +230,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -238,7 +249,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -256,7 +268,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -274,7 +287,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -292,7 +306,8 @@ public record JoltConfig(
                 v,
                 bindAddress,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     /**
@@ -314,7 +329,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 v,
                 maxPartBytes,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     /** Largest accepted multipart part, in bytes. Defaults to 1 MB; larger parts get 413. */
@@ -333,7 +349,8 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 v,
-                maxParts);
+                maxParts,
+                trustedProxies);
     }
 
     /** Most parts accepted in one multipart body. Defaults to 10; more get 413. */
@@ -352,6 +369,34 @@ public record JoltConfig(
                 maxStaticFileBytes,
                 bindAddress,
                 maxPartBytes,
-                v);
+                v,
+                trustedProxies);
+    }
+
+    /**
+     * Peers (IP addresses or CIDR blocks such as {@code 10.0.0.0/8}) whose {@code X-Forwarded-For},
+     * {@code X-Forwarded-Proto} and {@code X-Forwarded-Host} headers are honoured. Default: none.
+     *
+     * @throws IllegalArgumentException if an entry is not an IP literal or CIDR block
+     */
+    public JoltConfig trustProxy(String... cidrsOrAddresses) {
+        List<String> specs = List.of(cidrsOrAddresses);
+        TrustedProxies.of(specs);
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                specs);
     }
 }
