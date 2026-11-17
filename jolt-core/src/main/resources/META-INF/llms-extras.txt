@@ -7,6 +7,7 @@ Expect: 100-continue is answered before the body is read; declared length over m
 JSON binds Instant, LocalDate/Time, LocalDateTime, Offset/ZonedDateTime, Duration (ISO), UUID, BigDecimal, enums (by name) and Optional (empty: omitted in records, null in Map/List); bad values give 400.
 req.parts() reads multipart/form-data in memory: Part name(), filename() (sanitised, null for fields), contentType(), bytes(), text(). Limits maxParts(10), maxPartBytes(1 MB), maxBodyBytes: 413; malformed 400; other types 415.
 config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Forwarded-For (rightmost untrusted), -Proto, -Host applied to req.remoteAddress(), req.scheme(), req.host(); RateLimit.perIp then keys on the client.
+config.tls(keystorePath, password) or tls(SSLContext) serves HTTPS (TLS 1.2+, AEAD suites; req.scheme() is "https", usable in SecurityHeaders.hsts); plain HTTP stays default; a reverse proxy is still the usual production route.
 
 ## Response
 

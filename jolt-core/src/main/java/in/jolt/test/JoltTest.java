@@ -165,7 +165,8 @@ public final class JoltTest {
                             rawQuery,
                             headers,
                             body,
-                            remoteAddress);
+                            remoteAddress,
+                            false);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             if (jar != null) {
                 res.headers().stream()

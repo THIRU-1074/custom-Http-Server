@@ -45,9 +45,10 @@ public final class TrustedProxies {
             String rawQuery,
             Map<String, String> headers,
             byte[] body,
-            String peer) {
+            String peer,
+            boolean tls) {
         String address = peer;
-        String scheme = null;
+        String scheme = tls ? "https" : null;
         String host = null;
         if (!nets.isEmpty() && trusts(peer)) {
             address = forwardedFor(headers.get("X-Forwarded-For"), peer);

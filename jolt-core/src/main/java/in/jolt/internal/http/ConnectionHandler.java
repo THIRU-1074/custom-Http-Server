@@ -14,6 +14,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.function.BooleanSupplier;
+import javax.net.ssl.SSLSocket;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
 public final class ConnectionHandler implements Runnable {
@@ -76,6 +77,10 @@ public final class ConnectionHandler implements Runnable {
         Limits limits = Limits.from(config);
         try (socket) {
             socket.setTcpNoDelay(true);
+            if (socket instanceof SSLSocket tls) {
+                socket.setSoTimeout((int) config.readTimeout().toMillis());
+                tls.startHandshake();
+            }
             var in = new BufferedInputStream(socket.getInputStream(), 8192);
             OutputStream out = socket.getOutputStream();
             for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
@@ -135,7 +140,8 @@ public final class ConnectionHandler implements Runnable {
                         p.rawQuery(),
                         p.headers(),
                         p.body(),
-                        peer == null ? null : peer.getHostAddress());
+                        peer == null ? null : peer.getHostAddress(),
+                        socket instanceof SSLSocket);
         return respond(dispatcher, config, req);
     }
 

@@ -1,10 +1,13 @@
 package in.jolt;
 
+import in.jolt.internal.http.Tls;
 import in.jolt.internal.http.TrustedProxies;
 import in.jolt.internal.json.BuiltInJsonMapper;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import javax.net.ssl.SSLContext;
 
 /**
  * Immutable server settings. Start from {@link #defaults()} and override with the fluent copies.
@@ -25,7 +28,8 @@ public record JoltConfig(
         int maxPartBytes,
         int maxParts,
         List<String> trustedProxies,
-        boolean problemJson) {
+        boolean problemJson,
+        SSLContext tls) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -44,7 +48,8 @@ public record JoltConfig(
                 1024 * 1024,
                 10,
                 List.of(),
-                false);
+                false,
+                null);
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -120,7 +125,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -140,7 +146,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -160,7 +167,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -180,7 +188,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -200,7 +209,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -220,7 +230,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -240,7 +251,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -260,7 +272,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -280,7 +293,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -300,7 +314,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -320,7 +335,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     /**
@@ -344,7 +360,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     /**
@@ -372,7 +389,8 @@ public record JoltConfig(
                 v,
                 maxParts,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     /**
@@ -400,7 +418,8 @@ public record JoltConfig(
                 maxPartBytes,
                 v,
                 trustedProxies,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     /**
@@ -428,7 +447,8 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 specs,
-                problemJson);
+                problemJson,
+                tls);
     }
 
     /**
@@ -452,6 +472,41 @@ public record JoltConfig(
                 maxPartBytes,
                 maxParts,
                 trustedProxies,
-                v);
+                v,
+                tls);
+    }
+
+    /**
+     * Serves HTTPS with {@code context} (TLS 1.2 and 1.3, AEAD cipher suites only). Default: plain
+     * HTTP; a reverse proxy is still the usual production route.
+     */
+    public JoltConfig tls(SSLContext context) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson,
+                context);
+    }
+
+    /**
+     * Serves HTTPS with the key and certificate chain from a PKCS12 keystore.
+     *
+     * @throws IllegalArgumentException if the keystore cannot be loaded with that password
+     */
+    public JoltConfig tls(Path keystore, char[] password) {
+        return tls(Tls.context(keystore, password));
     }
 }
