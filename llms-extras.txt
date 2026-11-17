@@ -26,6 +26,7 @@ req.queryAll("genre") returns every value in order (empty list if absent); query
 
 ## Lifecycle
 app.onStart(Runnable) runs before listen binds the port (a throw aborts listen with IllegalStateException and runs the stop hooks); app.onStop(Runnable) runs on Server.close() and the closeOnShutdown hook after in-flight requests drain, once, in reverse order, each failure logged and skipped; app.lifecycle(start, stop) pairs them (stop runs after a failed start only if its start completed). Register before listen, else IllegalStateException.
+app.every([name,] Duration, Runnable) repeats and app.after([name,] Duration, Runnable) runs once, each on a virtual thread from listen until Server.close() (interrupted, joined); a throw is logged and the schedule continues, a tick while the previous run is still going is skipped; first run after one period; exposeMetrics() adds jolt_task_runs_total, _failures_total, _skipped_total{task=name} (default name task-N; names [A-Za-z0-9_.:-]{1,64}, unique); register before listen.
 
 ## Security
 app.use(Sessions.signed(secret32+)) keeps a Session in an HMAC-SHA256 cookie (signed, not encrypted): Sessions.of(req).get/put/remove/clear/isNew; values String, finite number, boolean; 3 KB cap throws IllegalStateException; .maxAge(1h, renewed at half) .previous(oldKeys) .cookie(name); HttpOnly, SameSite=Lax, Secure per config; cookie set only on change.

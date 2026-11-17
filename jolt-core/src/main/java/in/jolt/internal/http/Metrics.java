@@ -1,6 +1,7 @@
 package in.jolt.internal.http;
 
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Supplier;
 
 /**
  * Request and connection counters in the Prometheus text format. Label values come from fixed sets
@@ -27,6 +28,7 @@ public final class Metrics {
     private final LongAdder streamsOpen = new LongAdder();
     private final LongAdder sockets = new LongAdder();
     private final LongAdder socketsOpen = new LongAdder();
+    private volatile Supplier<String> section;
 
     public Metrics() {
         for (LongAdder[] row : requests) {
@@ -143,7 +145,16 @@ public final class Metrics {
                 socketsOpen.sum());
         counter(sb, "jolt_http_request_body_bytes_total", "Request body bytes.", bytesIn.sum());
         counter(sb, "jolt_http_response_body_bytes_total", "Response body bytes.", bytesOut.sum());
+        Supplier<String> extra = section;
+        if (extra != null) {
+            sb.append(extra.get());
+        }
         return sb.toString();
+    }
+
+    /** Appends {@code text} (already in exposition format) after the built-in series. */
+    public void section(Supplier<String> text) {
+        section = text;
     }
 
     private static void gauge(StringBuilder sb, String name, String help, long value) {
