@@ -14,7 +14,10 @@ public interface Params {
     String query(String name);
 
     /** Every value of a query parameter in order; empty if absent. */
-    List<String> queryAll(String name);
+    default List<String> queryAll(String name) {
+        String first = query(name);
+        return first == null ? List.of() : List.of(first);
+    }
 
     /**
      * Path parameter as String, a primitive or wrapper, UUID, Instant, LocalDate or enum.

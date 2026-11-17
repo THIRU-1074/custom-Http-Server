@@ -1,7 +1,6 @@
 package in.jolt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,9 +42,35 @@ class QueryAllTest {
     }
 
     @Test
+    void otherParamsImplementationsGetADefault() {
+        Params p =
+                new Params() {
+                    public String param(String name) {
+                        return null;
+                    }
+
+                    public String query(String name) {
+                        return name.equals("n") ? "7" : null;
+                    }
+                };
+        assertEquals(List.of("7"), p.queryAll("n"));
+        assertEquals(List.of(7), p.queryAll("n", Integer.class));
+        assertTrue(p.queryAll("x").isEmpty());
+    }
+
+    @Test
+    void queryMapIsDerivedFromTheSameParse() {
+        Request r = req("a=1&b=2&a=3");
+        assertEquals(List.of("1", "3"), r.queryAll("a"));
+        assertEquals(Map.of("a", "1", "b", "2"), r.query());
+        assertEquals(List.of("a", "b"), List.copyOf(r.query().keySet()));
+        assertThrows(UnsupportedOperationException.class, () -> r.query().put("x", "y"));
+    }
+
+    @Test
     void parsesOnce() {
         Request r = req("a=1&a=2");
-        assertSame(r.queryAll("a"), r.queryAll("a"));
+        assertEquals(r.queryAll("a"), r.queryAll("a"));
     }
 
     @Test

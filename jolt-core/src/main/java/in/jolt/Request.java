@@ -33,8 +33,7 @@ public final class Request implements Params {
     private final JsonMapper mapper;
     private final Map<String, Object> attributes = new HashMap<>();
     private Map<String, String> params = Map.of();
-    private Map<String, String> query;
-    private Map<String, List<String>> queryAll;
+    private Map<String, List<String>> query;
     private Map<String, String> cookies;
     private Map<String, String> form;
     private final String remoteAddress;
@@ -133,12 +132,24 @@ public final class Request implements Params {
 
     @Override
     public String query(String name) {
-        return query().get(name);
+        List<String> values = parsedQuery().get(name);
+        return values == null ? null : values.get(0);
     }
 
     @Override
     public List<String> queryAll(String name) {
-        if (queryAll == null) {
+        List<String> values = parsedQuery().get(name);
+        return values == null ? List.of() : Collections.unmodifiableList(values);
+    }
+
+    public Map<String, String> query() {
+        Map<String, String> first = new LinkedHashMap<>();
+        parsedQuery().forEach((k, v) -> first.put(k, v.get(0)));
+        return Collections.unmodifiableMap(first);
+    }
+
+    private Map<String, List<String>> parsedQuery() {
+        if (query == null) {
             Map<String, List<String>> all = new LinkedHashMap<>();
             eachPair(
                     rawQuery,
@@ -146,18 +157,10 @@ public final class Request implements Params {
                     true,
                     false,
                     StandardCharsets.UTF_8,
-                    (k, v) -> all.computeIfAbsent(k, x -> new ArrayList<>()).add(v));
-            all.replaceAll((k, v) -> Collections.unmodifiableList(v));
-            queryAll = all;
+                    (k, v) -> all.computeIfAbsent(k, x -> new ArrayList<>(1)).add(v));
+            query = all;
         }
-        return queryAll.getOrDefault(name, List.of());
-    }
-
-    public Map<String, String> query() {
-        if (query == null) {
-            query = parsePairs(rawQuery, "&", true, false);
-        }
-        return Collections.unmodifiableMap(query);
+        return query;
     }
 
     /**
