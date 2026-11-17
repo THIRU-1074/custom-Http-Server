@@ -36,8 +36,6 @@
     <module>jolt-db</module>
     <module>jolt-dev</module>
     <module>jolt-archetype</module>
-    <module>examples/attendance</module>
-    <module>examples/webhook</module>
     <module>examples/todos-solid</module>
   </modules>
 

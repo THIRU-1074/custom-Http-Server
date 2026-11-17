@@ -115,7 +115,7 @@ No regression within noise. In an earlier cross-framework run Jolt, Spring Boot 
 jolt-core/        zero-dependency core (in.jolt, in.jolt.internal is not API)
 jolt-auth/  jolt-mcp/  jolt-db/  jolt-dev/  jolt-archetype/
 jolt-starter/     standalone todos project
-examples/         attendance (JWT + SQLite), webhook, todos-solid (SOLID reference)
+examples/         todos-solid (SOLID reference)
 benchmarks/       tokens, load, verify, guard, mcp, RESULTS.md
 docs/             KRA, ARCHITECTURE, SOLID, PRINCIPLES, RELEASING, adr/
 ```
@@ -128,12 +128,10 @@ Requires JDK 21 and Maven.
 git clone https://github.com/THIRU-1074/custom-Http-Server.git
 cd custom-Http-Server
 mvn -B install -DskipTests
-mvn -pl examples/attendance exec:java      # port 5007
 mvn -pl examples/todos-solid exec:java     # port 8080, or set PORT
-mvn -pl examples/webhook exec:java         # port 5008, needs WEBHOOK_USER and WEBHOOK_PASSWORD
 ```
 
-The servers bind to loopback by default. For attendance and webhook, set `JOLT_BIND_ADDRESS=0.0.0.0` (read by `JoltConfig.fromEnv()`) to expose them. The attendance demo also reads `JWT_SECRET` (at least 32 bytes) and, on first start, `ADMIN_USER` and `ADMIN_PASSWORD` (12+ chars); see [docs/examples.md](docs/examples.md). SOLID guide: [docs/SOLID.md](docs/SOLID.md).
+The server binds to loopback by default (`JoltConfig.defaults()`). See [docs/examples.md](docs/examples.md). SOLID guide: [docs/SOLID.md](docs/SOLID.md).
 
 ## Contributing
 
