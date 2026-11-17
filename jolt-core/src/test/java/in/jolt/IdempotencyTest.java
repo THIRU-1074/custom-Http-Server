@@ -211,7 +211,11 @@ class IdempotencyTest {
                         Idempotency.keys()
                                 .store(
                                         new InMemoryIdempotencyStore(
-                                                10, Duration.ofHours(1), now::get)));
+                                                10,
+                                                1000,
+                                                Duration.ofHours(1),
+                                                Duration.ofMinutes(5),
+                                                now::get)));
         post(app, "k").expect(201);
         now.addAndGet(Duration.ofMinutes(59).toNanos());
         post(app, "k").expect(201).header("Idempotency-Replayed", "true");
@@ -228,7 +232,11 @@ class IdempotencyTest {
                         Idempotency.keys()
                                 .store(
                                         new InMemoryIdempotencyStore(
-                                                2, Duration.ofHours(1), now::get)));
+                                                2,
+                                                1000,
+                                                Duration.ofHours(1),
+                                                Duration.ofMinutes(5),
+                                                now::get)));
         post(app, "a").expect(201);
         post(app, "b").expect(201);
         post(app, "a").expect(201).header("Idempotency-Replayed", "true");
@@ -292,7 +300,9 @@ class IdempotencyTest {
                         () -> Idempotency.keys().store(null),
                         () -> Idempotency.keys().maxBodyBytes(-1),
                         () -> Idempotency.keys().methods(),
-                        () -> IdempotencyStore.inMemory(0, Duration.ofHours(1)))) {
+                        () -> IdempotencyStore.inMemory(0, Duration.ofHours(1)),
+                        () -> Idempotency.keys().methods("POST", " "),
+                        () -> Idempotency.keys().methods((String) null))) {
             try {
                 bad.run();
                 throw new AssertionError("expected IllegalArgumentException");
