@@ -23,12 +23,12 @@ class ConnectionHandlerTrustTest {
                             accepted,
                             JoltConfig.defaults(),
                             (req, res) -> res.text(req.remoteAddress()),
-                            () -> true,
+                            () -> false,
                             trusted);
             Thread t = Thread.ofVirtual().start(handler);
             client.getOutputStream()
                     .write(
-                            "GET / HTTP/1.1\r\nHost: t\r\nX-Forwarded-For: 4.3.2.1\r\n\r\n"
+                            "GET / HTTP/1.1\r\nHost: t\r\nX-Forwarded-For: 4.3.2.1\r\nConnection: close\r\n\r\n"
                                     .getBytes(StandardCharsets.ISO_8859_1));
             String reply =
                     new String(client.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
