@@ -15,9 +15,8 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
- * Short-lived JWT access tokens paired with rotating opaque refresh tokens. Each refresh token is
- * single use; redeeming one a second time revokes its whole family, so a stolen token is detected.
- * Only a SHA-256 hash of a refresh token is stored.
+ * JWT access tokens paired with single-use, rotating opaque refresh tokens; reusing one revokes its
+ * whole family. Only a SHA-256 hash is stored.
  */
 public final class RefreshTokens {
 
