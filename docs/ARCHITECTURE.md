@@ -11,7 +11,8 @@ jolt-core/                   zero runtime dependencies; the only module users mu
                              Server, HttpException, HttpStatus, Typed, Params, Reply, RouteModule,
                              Validate/Validator/Rules, Static, Compress, Cors, Csrf, Sessions,
                              SecurityHeaders, RateLimit, RequestId, Logger, BodyCodec, JsonMapper,
-                             EventStream, ResponseStream, WebSocketHandler/Route/Session, Multipart
+                             EventStream, ResponseStream, WebSocketHandler/Route/Session, Multipart,
+                             Tasks
   in.jolt.internal.http      HttpParser, ConnectionHandler, ResponseWriter, Limits, Replies, Tls,
                              TrustedProxies, Metrics, StreamGuard, WebSocketConnection
   in.jolt.internal.routing   RouteTrie, Suggest (did-you-mean 404)

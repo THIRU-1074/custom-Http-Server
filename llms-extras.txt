@@ -18,6 +18,9 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
     res.json(x).etag()  res.cache(Duration.ofMinutes(5))  res.noStore()   // weak ETag + 304 on If-None-Match; max-age; no-store. sendFile/Static do 304 (ETag, Last-Modified) automatically
     app.use(Compress.gzip())              // opt-in; gzip(minBytes), default 1024; honours Accept-Encoding q=0, sets Vary; skips images/zip/encoded; BREACH: not for pages mixing secrets with user text
 
+## Transport
+app.module(tasks = Tasks.inMemory()) then tasks.start(req, res, () -> work()) runs work on a virtual thread: 202 + Location /tasks/<128-bit id> + {id,status,href}; GET /tasks/:id gives running|done (result: work's return as JSON)|failed (error: "Task failed", detail only logged)|cancelled, ?wait=s long-polls (max 30); DELETE cancels (interrupts) or forgets a finished task, 204; .path("/jobs") moves routes and Location; .owner(req->id) hides others' tasks (404), null owner 401; inMemory(64 running, 1000 stored, 15m TTL after finish): over capacity 503 + Retry-After; per process; app.module(tasks).tool("..") tags the GET.
+
 ## Routing
 Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the next route, then 404), /files/:name? (optional last param). Order: static, constrained, plain, wildcard. Bad regex, duplicate names or /files/:name? next to /files: IllegalArgumentException at registration.
 
