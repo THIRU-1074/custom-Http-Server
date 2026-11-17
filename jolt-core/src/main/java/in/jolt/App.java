@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -159,13 +160,22 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
 
     /** Opt-in introspection: {@code GET /_jolt/routes} and {@code GET /_jolt/openapi.json}. */
     public App exposeRoutes() {
-        get("/_jolt/routes", (req, res) -> res.json(routes()));
+        get("/_jolt/routes", (req, res) -> res.json(routes().stream().map(App::describe).toList()));
         get(
                 "/_jolt/openapi.json",
                 (req, res) ->
                         res.send(openApi().getBytes(StandardCharsets.UTF_8))
                                 .header("Content-Type", "application/json; charset=utf-8"));
         return this;
+    }
+
+    private static Map<String, Object> describe(Route r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("method", r.method());
+        m.put("path", r.path());
+        m.put("tool", r.tool());
+        m.put("input", r.input() == null ? null : r.input().getSimpleName());
+        return m;
     }
 
     @Override
