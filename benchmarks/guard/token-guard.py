@@ -17,6 +17,7 @@ ROOT = HERE.parent.parent
 APP = ROOT / "benchmarks/tokens/jolt"
 BASELINE = HERE / "token-baseline.json"
 LLMS_LIMIT = 2100
+EXTRAS_LIMIT = 3200
 APP_GROWTH = 0.05
 
 
@@ -39,11 +40,14 @@ def main():
     name, count = load_tokenizer()
     real = name.startswith("tiktoken")
     llms = count((ROOT / "llms.txt").read_text(encoding="utf-8"))
+    extras_file = ROOT / "llms-extras.txt"
+    extras = count(extras_file.read_text(encoding="utf-8")) if extras_file.exists() else 0
     parts = {str(p.relative_to(APP)).replace("\\", "/"): count(p.read_text(encoding="utf-8"))
              for p in app_files()}
     app = sum(parts.values())
     print(f"Tokenizer: {name}")
     print(f"llms.txt: {llms} tokens (limit {LLMS_LIMIT})")
+    print(f"llms-extras.txt: {extras} tokens (limit {EXTRAS_LIMIT})")
     for k, v in parts.items():
         print(f"  {k}: {v}")
     print(f"jolt todo app total: {app} tokens")
@@ -56,6 +60,9 @@ def main():
         return 0
 
     failed = False
+    if extras > EXTRAS_LIMIT:
+        print(f"FAIL: llms-extras.txt is {extras} tokens, over the {EXTRAS_LIMIT} limit. Tighten the text.")
+        failed = True
     if llms > LLMS_LIMIT:
         print(f"FAIL: llms.txt is {llms} tokens, over the {LLMS_LIMIT} limit. "
               "Tighten the text; do not raise the limit.")

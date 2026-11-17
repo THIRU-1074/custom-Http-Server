@@ -6,6 +6,7 @@ import in.jolt.JoltConfig;
 import in.jolt.Response;
 import in.jolt.Router;
 import in.jolt.auth.JwtAuth;
+import in.jolt.auth.PasswordHasher;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;

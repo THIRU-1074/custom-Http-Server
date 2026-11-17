@@ -31,7 +31,8 @@ the constitution is the hard rules, this is the design contract behind them.
 ## Token-small docs
 
 10. **Every feature's `llms.txt` entry is one line.** The file stays under 8000 characters
-    (`LlmsTxtBudgetTest`) and 2100 tokens (`token-guard.py`). If it is full, tighten text first. Raising
+    (`LlmsTxtBudgetTest`) and 2100 tokens (`token-guard.py`). If it is full, tighten text first. Optional features go
+    in `llms-extras.txt` (12000 characters, 3200 tokens), so the core sheet stays small. Raising
     a limit needs an ADR (see ADR 0003, the one-time raise for the v0.3 feature set).
 11. **The todo app stays small.** The Jolt benchmark app may not grow more than 5% in tokens without
     a reviewed baseline refresh.
