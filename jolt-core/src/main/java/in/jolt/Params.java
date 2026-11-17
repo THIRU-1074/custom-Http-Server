@@ -12,22 +12,21 @@ public interface Params {
     String query(String name);
 
     /**
-     * Path parameter converted to {@code type}, or {@code null} if absent. Supports String,
-     * Integer, Long, Boolean, Double, UUID, Instant, LocalDate and enums (case-insensitive),
-     * primitives included.
+     * Path parameter as {@code type}: String, primitives and wrappers (int, long, short, byte,
+     * boolean, double, float), UUID, Instant, LocalDate or an enum (case-insensitive).
      *
-     * @throws HttpException 400 naming the parameter if the value is malformed
+     * @throws HttpException 400 naming the parameter if malformed, or absent for a primitive
+     * @throws IllegalArgumentException if {@code type} is unsupported
      */
     default <T> T param(String name, Class<T> type) {
-        return Values.convert("path", name, param(name), type);
+        return Values.convert("path", name, param(name), type, null);
     }
 
     /**
-     * Query parameter converted like {@link #param(String, Class)}, or {@code fallback} when
+     * Query parameter as {@code type}, see {@link #param(String, Class)}; {@code fallback} if
      * absent.
      */
     default <T> T query(String name, Class<T> type, T fallback) {
-        String raw = query(name);
-        return raw == null ? fallback : Values.convert("query", name, raw, type);
+        return Values.convert("query", name, query(name), type, fallback);
     }
 }

@@ -102,12 +102,63 @@ class TypedParamsTest {
     @Test
     void unsupportedTypeIsAProgrammingError() {
         assertThrows(
-                UnsupportedOperationException.class,
+                IllegalArgumentException.class,
                 () -> req("a=1").query("a", java.math.BigDecimal.class, null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> req("").query("a", java.math.BigDecimal.class, null));
+        assertThrows(IllegalArgumentException.class, () -> req("").param("a", Object.class));
     }
 
     @Test
     void absentPathParamIsNull() {
         assertNull(req("").param("id", Long.class));
+    }
+
+    @Test
+    void doublesAreStrict() {
+        assertEquals(100000.0, req("d=1e5").query("d", double.class, 0.0));
+        assertEquals(-2.5, req("d=-2.5").query("d", Double.class, null));
+        assertEquals(1.5f, req("d=1.5").query("d", float.class, 0f));
+        for (String bad :
+                new String[] {
+                    "1d", "0x1p3", "%201", "1%20", ".5", "1.", "1e999", "+1", "--1", "1f"
+                }) {
+            Request r = req("d=" + bad);
+            assertEquals(
+                    400,
+                    assertThrows(HttpException.class, () -> r.query("d", Double.class, null))
+                            .status(),
+                    bad);
+        }
+    }
+
+    @Test
+    void allPrimitivesAndWrappersConvert() {
+        Request r = req("a=1&b=2&c=3&d=true&e=1.5&f=2.5");
+        assertEquals((short) 1, r.query("a", short.class, (short) 0));
+        assertEquals((byte) 2, r.query("b", Byte.class, null));
+        assertEquals(3L, r.query("c", long.class, 0L));
+        assertEquals(true, r.query("d", boolean.class, false));
+        assertEquals(1.5, r.query("e", double.class, 0.0));
+        assertEquals(2.5f, r.query("f", Float.class, null));
+        assertEquals(
+                400,
+                assertThrows(
+                                HttpException.class,
+                                () -> req("b=300").query("b", byte.class, (byte) 0))
+                        .status());
+    }
+
+    @Test
+    void absentPrimitiveWithoutDefaultIs400() {
+        HttpException e =
+                assertThrows(HttpException.class, () -> req("").query("page", int.class, null));
+        assertEquals(400, e.status());
+        assertEquals("Missing parameter page", e.getMessage());
+        assertEquals(
+                "Missing parameter id",
+                assertThrows(HttpException.class, () -> req("").param("id", long.class))
+                        .getMessage());
     }
 }
