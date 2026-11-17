@@ -550,8 +550,8 @@ public record JoltConfig(
     }
 
     /**
-     * Serves HTTPS with {@code context} (TLS 1.2 and 1.3, forward-secret AEAD suites only). Default: plain
-     * HTTP; a reverse proxy is still the usual production route.
+     * Serves HTTPS with {@code context} (TLS 1.2 and 1.3, forward-secret AEAD suites only).
+     * Default: plain HTTP; a reverse proxy is still the usual production route.
      */
     public JoltConfig tls(SSLContext context) {
         return new JoltConfig(

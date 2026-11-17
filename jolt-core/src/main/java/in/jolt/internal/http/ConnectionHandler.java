@@ -103,8 +103,15 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    /** Answers 503 and closes the socket; used when the connection limit is reached. */
+    /**
+     * Answers 503 and closes the socket; used when the connection limit is reached. A TLS socket is
+     * only closed: answering would force a handshake on the acceptor thread.
+     */
     public static void reject(Socket socket, JoltConfig config) {
+        if (socket instanceof SSLSocket) {
+            closeQuietly(socket);
+            return;
+        }
         try (socket) {
             socket.setSoTimeout(1000);
             writeError(

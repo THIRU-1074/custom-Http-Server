@@ -174,6 +174,34 @@ class TlsTest {
     }
 
     @Test
+    void rejectedTlsClientsDoNotBlockTheAcceptor() throws Exception {
+        App app = Jolt.create(JoltConfig.defaults().maxConnections(1).tls(keystore, PASSWORD));
+        app.get("/scheme", (req, res) -> res.text(req.scheme()));
+        HttpClient client = HttpClient.newBuilder().sslContext(trustAll()).build();
+        try (Server server = app.listen(0)) {
+            java.net.Socket holder = new java.net.Socket("127.0.0.1", server.port());
+            Thread.sleep(100);
+            java.net.Socket silent = new java.net.Socket("127.0.0.1", server.port());
+            Thread.sleep(100);
+            holder.close();
+            Thread.sleep(150);
+            long start = System.nanoTime();
+            HttpResponse<String> r =
+                    client.send(
+                            HttpRequest.newBuilder(
+                                            URI.create(
+                                                    "https://127.0.0.1:"
+                                                            + server.port()
+                                                            + "/scheme"))
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
+            assertEquals("https", r.body());
+            assertTrue(Duration.ofNanos(System.nanoTime() - start).toMillis() < 600);
+            silent.close();
+        }
+    }
+
+    @Test
     void plainHttpStaysTheDefault() throws Exception {
         App app = Jolt.create();
         app.get("/scheme", (req, res) -> res.text(req.scheme()));
