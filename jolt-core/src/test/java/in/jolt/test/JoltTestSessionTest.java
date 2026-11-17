@@ -1,8 +1,10 @@
 package in.jolt.test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import in.jolt.App;
 import in.jolt.Jolt;
@@ -129,7 +131,25 @@ class JoltTestSessionTest {
                 "GET /profile: expected json address.city <Paris> but was <London>",
                 e.getMessage());
         var m = assertThrows(AssertionError.class, () -> r.jsonEquals("nope.x", "v"));
-        assertEquals("GET /profile: expected json nope.x <v> but was <null>", m.getMessage());
+        assertEquals("GET /profile: json path nope.x is missing (expected <v>)", m.getMessage());
+    }
+
+    @Test
+    void jsonHasDistinguishesMissingFromExplicitNull() {
+        app.get("/n", (req, res) -> res.text("{\"a\":null}"));
+        var r = JoltTest.of(app).get("/n").expect(200);
+        assertTrue(r.jsonHas("a"));
+        assertFalse(r.jsonHas("b"));
+        r.jsonEquals("a", null);
+        assertThrows(AssertionError.class, () -> r.jsonEquals("b", null));
+        assertThrows(AssertionError.class, () -> r.jsonEquals("a", "x"));
+    }
+
+    @Test
+    void jsonEqualsWithNonFiniteNumbersFailsAsAssertion() {
+        var r = JoltTest.of(app).get("/profile").expect(200);
+        assertThrows(AssertionError.class, () -> r.jsonEquals("age", Double.NaN));
+        assertThrows(AssertionError.class, () -> r.jsonEquals("age", Double.POSITIVE_INFINITY));
     }
 
     @Test

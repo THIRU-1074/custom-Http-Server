@@ -203,6 +203,8 @@ public final class JoltTest {
 
     /** A response with fluent assertions; each assertion returns this result. */
     public static final class Result {
+        private static final Object MISSING = new Object();
+
         private final App app;
         private final String what;
         private final Response res;
@@ -259,6 +261,45 @@ public final class JoltTest {
          * The value at a dotted JSON path such as {@code user.tags.0}, or {@code null} if absent.
          */
         public Object jsonField(String path) {
+            Object v = lookup(path);
+            return v == MISSING ? null : v;
+        }
+
+        /** Asserts nothing; true when the path exists, even if its value is JSON null. */
+        public boolean jsonHas(String path) {
+            return lookup(path) != MISSING;
+        }
+
+        /**
+         * Asserts the JSON value at {@code path}; numbers compare by value, and a missing path
+         * fails even when {@code expected} is null.
+         */
+        public Result jsonEquals(String path, Object expected) {
+            Object actual = lookup(path);
+            if (actual == MISSING) {
+                throw new AssertionError(
+                        what + ": json path " + path + " is missing (expected <" + expected + ">)");
+            }
+            return check(sameJson(expected, actual), "json " + path, expected, actual);
+        }
+
+        private static boolean sameJson(Object expected, Object actual) {
+            if (expected instanceof Number n && actual instanceof Number a) {
+                if (isFinite(n) && isFinite(a)) {
+                    return new java.math.BigDecimal(n.toString())
+                                    .compareTo(new java.math.BigDecimal(a.toString()))
+                            == 0;
+                }
+                return Double.compare(n.doubleValue(), a.doubleValue()) == 0;
+            }
+            return java.util.Objects.equals(expected, actual);
+        }
+
+        private static boolean isFinite(Number n) {
+            return !(n instanceof Double || n instanceof Float) || Double.isFinite(n.doubleValue());
+        }
+
+        private Object lookup(String path) {
             Object cur;
             try {
                 cur = Json.parse(text());
@@ -266,28 +307,17 @@ public final class JoltTest {
                 throw new AssertionError(what + ": body is not valid JSON");
             }
             for (String key : path.split("\\.")) {
-                if (cur instanceof Map<?, ?> m) {
+                if (cur instanceof Map<?, ?> m && m.containsKey(key)) {
                     cur = m.get(key);
-                } else if (cur instanceof List<?> l && key.matches("\\d+")) {
-                    int i = Integer.parseInt(key);
-                    cur = i < l.size() ? l.get(i) : null;
+                } else if (cur instanceof List<?> l
+                        && key.matches("\\d+")
+                        && Integer.parseInt(key) < l.size()) {
+                    cur = l.get(Integer.parseInt(key));
                 } else {
-                    return null;
+                    return MISSING;
                 }
             }
             return cur;
-        }
-
-        /** Asserts the JSON value at {@code path}; numbers compare by value. */
-        public Result jsonEquals(String path, Object expected) {
-            Object actual = jsonField(path);
-            boolean ok =
-                    expected instanceof Number n && actual instanceof Number a
-                            ? new java.math.BigDecimal(n.toString())
-                                            .compareTo(new java.math.BigDecimal(a.toString()))
-                                    == 0
-                            : java.util.Objects.equals(expected, actual);
-            return check(ok, "json " + path, expected, actual);
         }
 
         private Result check(boolean ok, String label, Object expected, Object actual) {
