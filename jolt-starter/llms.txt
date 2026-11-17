@@ -67,16 +67,16 @@ Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path pa
 
 ## Complete example
     record Todo(String title) {}
-    Map<Integer, Todo> db = new ConcurrentHashMap<>();
+    Map<String, Todo> db = new ConcurrentHashMap<>();
     App app = Jolt.create();
     app.use("/todos", JwtAuth.hs256(secret).middleware());
     app.post("/todos", (req, res) -> {
         Todo t = req.body(Todo.class);
-        db.put(db.size() + 1, t);
+        db.put(String.valueOf(db.size() + 1), t);
         res.status(201).json(t);
     });
     app.get("/todos/:id", (req, res) -> {
-        Todo t = db.get(Integer.parseInt(req.param("id")));
+        Todo t = db.get(req.param("id"));
         if (t == null) throw new HttpException(404, "Not found");
         res.json(t);
     }).tool("Fetch a todo by id");
