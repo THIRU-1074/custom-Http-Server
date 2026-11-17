@@ -319,6 +319,15 @@ public final class Request implements Params {
         return (String) attributes.get(RequestId.ATTRIBUTE);
     }
 
+    /** The {@code Last-Event-ID} an SSE client sends when it reconnects, or {@code null}. */
+    public String lastEventId() {
+        return headers.get("Last-Event-ID");
+    }
+
+    JsonMapper mapper() {
+        return mapper;
+    }
+
     /** Per-request value set by middleware, or {@code null}. */
     public Object attr(String name) {
         return attributes.get(name);

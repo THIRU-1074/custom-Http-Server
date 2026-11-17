@@ -132,6 +132,10 @@ public final class Response {
         return live;
     }
 
+    JsonMapper mapper() {
+        return mapper;
+    }
+
     /** True once {@link #stream} or {@link #sse} has committed the response. */
     public boolean isStreaming() {
         return stream != null;
