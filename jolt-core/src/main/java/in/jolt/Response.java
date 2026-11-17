@@ -213,6 +213,33 @@ public final class Response {
         return copy;
     }
 
+    String headerValue(String name) {
+        for (var h : headers) {
+            if (h.getKey().equalsIgnoreCase(name)) {
+                return h.getValue();
+            }
+        }
+        return null;
+    }
+
+    Response replaceBody(byte[] bytes) {
+        body = bytes;
+        return this;
+    }
+
+    Response addVary(String token) {
+        String existing = headerValue("Vary");
+        if (existing == null || existing.isBlank()) {
+            return header("Vary", token);
+        }
+        for (String t : existing.split(",")) {
+            if (t.strip().equals("*") || t.strip().equalsIgnoreCase(token)) {
+                return this;
+            }
+        }
+        return header("Vary", existing + ", " + token);
+    }
+
     public int statusCode() {
         return status;
     }
