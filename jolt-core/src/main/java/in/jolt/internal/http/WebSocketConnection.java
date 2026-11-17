@@ -110,7 +110,7 @@ final class WebSocketConnection implements WebSocketSession {
 
     void run() {
         Duration idle = config.streamIdleTimeout();
-        guard = new StreamGuard(socket, idle.multipliedBy(2), Duration.ZERO);
+        guard = new StreamGuard(socket, idle.multipliedBy(2), config.streamMaxDuration());
         try {
             socket.setSoTimeout((int) Math.min(Integer.MAX_VALUE, idle.toMillis()));
             handler.onOpen(this);
@@ -322,10 +322,14 @@ final class WebSocketConnection implements WebSocketSession {
             ByteBuffer.wrap(buf, 2, 8).putLong(n);
         }
         System.arraycopy(payload, 0, buf, header, n);
-        guard.touch();
+        if (op != PING) {
+            guard.touch();
+        }
         out.write(buf);
         out.flush();
-        guard.touch();
+        if (op != PING) {
+            guard.touch();
+        }
     }
 
     private static boolean validCode(int code) {

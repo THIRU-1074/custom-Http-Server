@@ -176,6 +176,52 @@ class WebSocketTest {
     }
 
     @Test
+    void maxDurationEndsAConnectionThatKeepsAnsweringPings() throws Exception {
+        App app =
+                echoApp(
+                        JoltConfig.defaults()
+                                .streamTimeouts(Duration.ofMillis(150), Duration.ofMillis(700)));
+        try (HttpClient client = HttpClient.newHttpClient();
+                Server server = app.listen(0)) {
+            Events ev = new Events();
+            connect(client, server, "/echo", ev);
+            int pings = 0;
+            Object last;
+            long deadline = System.nanoTime() + 3_000_000_000L;
+            do {
+                last = ev.next();
+                if ("ping".equals(last)) {
+                    pings++;
+                }
+            } while ("ping".equals(last) && System.nanoTime() < deadline);
+            assertTrue(!"ping".equals(last), "connection must end at the cap");
+            assertTrue(pings >= 2, "pings keep the connection alive until the cap: " + pings);
+            assertTrue(
+                    last.toString().startsWith("close:") || last.toString().startsWith("error:"));
+        }
+    }
+
+    @Test
+    void silentClientIsPingedAfterOneIdlePeriodAndDroppedAfterTwo() throws Exception {
+        App app =
+                echoApp(
+                        JoltConfig.defaults()
+                                .streamTimeouts(Duration.ofMillis(300), Duration.ZERO));
+        try (Server server = app.listen(0);
+                Raw c = Raw.connect(server.port(), "/echo", null)) {
+            long start = System.nanoTime();
+            assertEquals(0x9, c.read().op());
+            long pinged = (System.nanoTime() - start) / 1_000_000;
+            assertTrue(pinged >= 250 && pinged < 500, "ping after one idle period: " + pinged);
+            while (c.socket.getInputStream().read() >= 0) {
+                // drain until the server drops the connection
+            }
+            long dropped = (System.nanoTime() - start) / 1_000_000;
+            assertTrue(dropped >= 550 && dropped < 800, "drop after two idle periods: " + dropped);
+        }
+    }
+
+    @Test
     void oversizeMessageClosesWith1009() throws Exception {
         App app = echoApp(JoltConfig.defaults().wsLimits(1024, 4096));
         try (HttpClient client = HttpClient.newHttpClient();
@@ -372,7 +418,7 @@ class WebSocketTest {
         record Frame(int op, byte[] payload) {}
 
         private static final String KEY = "dGhlIHNhbXBsZSBub25jZQ==";
-        private final Socket socket;
+        final Socket socket;
         private final InputStream in;
 
         private Raw(Socket socket) throws IOException {
