@@ -125,8 +125,9 @@ public final class Response {
 
     /** Sets a weak {@code ETag} from the body and answers 304 if the request's validators match. */
     public Response etag() {
-        header("ETag", "W/\"" + Long.toHexString(body.length) + "-" + digest(body) + "\"");
-        if (notModified(null)) {
+        String tag = "W/\"" + Long.toHexString(body.length) + "-" + digest(body) + "\"";
+        header("ETag", tag);
+        if (notModified(null, tag)) {
             status = 304;
             body = new byte[0];
         }
@@ -246,26 +247,30 @@ public final class Response {
                 throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
             }
             Instant modified = Files.getLastModifiedTime(file).toInstant();
-            header("ETag", "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"");
-            header("Last-Modified", HTTP_DATE.format(modified));
-            header("Accept-Ranges", "bytes");
+            String tag = "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"";
             String type = contentType(file);
-            if (notModified(modified)) {
+            if (notModified(modified, tag)) {
+                validators(tag, modified);
                 status = 304;
                 return send(new byte[0], type);
             }
             long[] range = range(size);
-            if (range == null) {
-                return send(Files.readAllBytes(file), type);
-            }
-            if (range.length == 0) {
+            if (range != null && range.length == 0) {
+                validators(tag, modified);
                 status = 416;
                 header("Content-Range", "bytes */" + size);
                 return send(new byte[0], type);
             }
-            status = 206;
-            header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
-            return send(readRange(file, range[0], (int) (range[1] - range[0] + 1)), type);
+            byte[] data =
+                    range == null
+                            ? Files.readAllBytes(file)
+                            : readRange(file, range[0], (int) (range[1] - range[0] + 1));
+            validators(tag, modified);
+            if (range != null) {
+                status = 206;
+                header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
+            }
+            return send(data, type);
         } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         } catch (IOException e) {
@@ -334,6 +339,12 @@ public final class Response {
         return this;
     }
 
+    private void validators(String tag, Instant modified) {
+        header("ETag", tag);
+        header("Last-Modified", HTTP_DATE.format(modified));
+        header("Accept-Ranges", "bytes");
+    }
+
     private long[] range(long size) {
         String spec = req == null ? null : req.header("Range");
         if (spec == null
@@ -393,7 +404,7 @@ public final class Response {
         }
     }
 
-    private boolean notModified(Instant lastModified) {
+    private boolean notModified(Instant lastModified, String tag) {
         if (req == null
                 || status != 200
                 || !(req.method().equals("GET") || req.method().equals("HEAD"))) {
@@ -401,8 +412,7 @@ public final class Response {
         }
         String none = req.header("If-None-Match");
         if (none != null) {
-            String tag = headerValue("ETag");
-            return tag != null && matchesTag(none, tag);
+            return matchesTag(none, tag);
         }
         String since = req.header("If-Modified-Since");
         if (since == null || lastModified == null) {

@@ -73,7 +73,7 @@ public final class Static implements Middleware {
         try {
             next.run();
         } catch (HttpException e) {
-            if (!(e instanceof App.NoRoute) || !send(res, "/" + spaIndex)) {
+            if (!(e instanceof App.NoRoute) || !send(res.status(200), "/" + spaIndex)) {
                 throw e;
             }
         }
@@ -103,7 +103,7 @@ public final class Static implements Middleware {
 
     private boolean send(Response res, String rel) {
         try {
-            res.status(200).sendFile(root, rel);
+            res.sendFile(root, rel);
             return true;
         } catch (HttpException e) {
             if (e.status() != HttpStatus.NOT_FOUND.code()) {

@@ -110,4 +110,39 @@ class ConditionalTest {
         assertNotEquals(before, after.header("ETag"));
         assertEquals("three", after.text());
     }
+
+    @Test
+    void unreadableFilesLeaveNoValidatorsOnTheErrorReply(@TempDir Path root) throws IOException {
+        Path f = root.resolve("locked.txt");
+        Files.writeString(f, "secret");
+        try (var ch =
+                        java.nio.channels.FileChannel.open(
+                                f, java.nio.file.StandardOpenOption.WRITE);
+                var lock = ch.tryLock()) {
+            Response res = new Response(null);
+            try {
+                res.sendFile(f);
+                org.junit.jupiter.api.Assumptions.abort("file stayed readable under lock");
+            } catch (HttpException e) {
+                assertEquals(500, e.status());
+            }
+            assertEquals(java.util.List.of(), res.headers());
+        }
+    }
+
+    @Test
+    void staticKeepsAStatusSetByEarlierMiddleware(@TempDir Path root) throws IOException {
+        Files.writeString(root.resolve("a.txt"), "body");
+        App app = Jolt.create();
+        app.use(
+                (req, res, next) -> {
+                    res.status(203);
+                    next.run();
+                });
+        app.use(Static.serve(root));
+        var t = JoltTest.of(app);
+        t.get("/a.txt").expect(203).body("body");
+        var etag = t.get("/a.txt").send().header("ETag");
+        t.get("/a.txt").header("If-None-Match", etag).expect(203).body("body");
+    }
 }
