@@ -44,7 +44,10 @@ class SecurityHeadersTest {
     @Test
     void hstsIsNotSentOverPlainHttp() {
         var r =
-                JoltTest.of(app(SecurityHeaders.defaults().hsts(Duration.ofDays(365))))
+                JoltTest.of(
+                                app(
+                                        SecurityHeaders.defaults()
+                                                .hsts(Duration.ofDays(365), req -> false)))
                         .get("/")
                         .expect(200);
         assertNull(r.header("Strict-Transport-Security"));
@@ -54,8 +57,7 @@ class SecurityHeadersTest {
     void hstsIsSentWhenThePredicateSaysHttps() {
         var mw =
                 SecurityHeaders.defaults()
-                        .hsts(Duration.ofDays(365))
-                        .https(req -> "https".equals(req.header("X-Scheme")));
+                        .hsts(Duration.ofDays(365), req -> "https".equals(req.header("X-Scheme")));
         var t = JoltTest.of(app(mw));
         t.get("/")
                 .header("X-Scheme", "https")
@@ -95,11 +97,17 @@ class SecurityHeadersTest {
     }
 
     @Test
+    void hstsNeedsAPredicate() {
+        var d = SecurityHeaders.defaults();
+        assertThrows(NullPointerException.class, () -> d.hsts(Duration.ofDays(1), null));
+    }
+
+    @Test
     void hstsNeedsAPositiveDuration() {
         var d = SecurityHeaders.defaults();
-        assertThrows(IllegalArgumentException.class, () -> d.hsts(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> d.hsts(Duration.ZERO, req -> true));
         assertEquals(
                 "max-age=60; includeSubDomains",
-                SecurityHeaders.defaults().hsts(Duration.ofMinutes(1)).hstsValue());
+                SecurityHeaders.defaults().hsts(Duration.ofMinutes(1), req -> true).hstsValue());
     }
 }

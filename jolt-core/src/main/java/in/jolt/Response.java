@@ -270,7 +270,7 @@ public final class Response {
         return true;
     }
 
-    private static void checkHeader(String name, String value) {
+    static void checkHeader(String name, String value) {
         if (name == null || name.isEmpty() || value == null) {
             throw new IllegalArgumentException("Header name and value are required");
         }

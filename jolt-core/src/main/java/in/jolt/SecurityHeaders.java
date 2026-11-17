@@ -33,31 +33,29 @@ public final class SecurityHeaders implements Middleware {
 
     /** The five default headers; HSTS and CSP are off. */
     public static SecurityHeaders defaults() {
-        return new SecurityHeaders(BASE, null, req -> false);
+        return new SecurityHeaders(BASE, null, null);
     }
 
     /**
      * Adds {@code Strict-Transport-Security} with {@code includeSubDomains}, sent only for requests
-     * the {@link #https} predicate accepts.
+     * {@code isHttps} accepts (for example, a trusted-proxy check), so it never goes out over plain
+     * HTTP.
      */
-    public SecurityHeaders hsts(Duration maxAge) {
+    public SecurityHeaders hsts(Duration maxAge, Predicate<Request> isHttps) {
         if (maxAge.isZero() || maxAge.isNegative()) {
             throw new IllegalArgumentException("HSTS max-age must be positive");
         }
         return new SecurityHeaders(
-                always, "max-age=" + maxAge.toSeconds() + "; includeSubDomains", https);
-    }
-
-    /** Decides which requests count as HTTPS for HSTS. Default: none, so HSTS is never sent. */
-    public SecurityHeaders https(Predicate<Request> isHttps) {
-        return new SecurityHeaders(always, hsts, isHttps);
+                always,
+                "max-age=" + maxAge.toSeconds() + "; includeSubDomains",
+                java.util.Objects.requireNonNull(isHttps, "isHttps"));
     }
 
     /** Adds a {@code Content-Security-Policy} header with the given policy. */
     public SecurityHeaders csp(String policy) {
         List<Map.Entry<String, String>> next = new ArrayList<>(always);
         next.add(Map.entry("Content-Security-Policy", policy));
-        new Response(null).header("Content-Security-Policy", policy);
+        Response.checkHeader("Content-Security-Policy", policy);
         return new SecurityHeaders(List.copyOf(next), hsts, https);
     }
 
