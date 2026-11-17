@@ -22,9 +22,11 @@ import java.util.TreeMap;
 public final class JoltTest {
 
     private final App app;
+    private final TrustedProxies trusted;
 
     private JoltTest(App app) {
         this.app = app;
+        this.trusted = TrustedProxies.from(app.config());
     }
 
     public static JoltTest of(App app) {
@@ -60,20 +62,22 @@ public final class JoltTest {
     }
 
     public Call call(String method, String path) {
-        return new Call(app, method, path);
+        return new Call(app, trusted, method, path);
     }
 
     /** A request under construction. It is sent by {@link #expect(int)} or {@link #send()}. */
     public static final class Call {
         private final App app;
+        private final TrustedProxies trusted;
         private final String method;
         private final String path;
         private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         private byte[] body = new byte[0];
         private String remoteAddress = "127.0.0.1";
 
-        private Call(App app, String method, String path) {
+        private Call(App app, TrustedProxies trusted, String method, String path) {
             this.app = app;
+            this.trusted = trusted;
             this.method = method;
             this.path = path;
         }
@@ -125,15 +129,14 @@ public final class JoltTest {
                 headers.put("Content-Length", String.valueOf(body.length));
             }
             var req =
-                    TrustedProxies.from(app.config())
-                            .request(
-                                    app.config(),
-                                    method,
-                                    Codec.percentDecode(rawPath, false),
-                                    rawQuery,
-                                    headers,
-                                    body,
-                                    remoteAddress);
+                    trusted.request(
+                            app.config(),
+                            method,
+                            Codec.percentDecode(rawPath, false),
+                            rawQuery,
+                            headers,
+                            body,
+                            remoteAddress);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             return new Result(app, method + " " + path, res);
         }

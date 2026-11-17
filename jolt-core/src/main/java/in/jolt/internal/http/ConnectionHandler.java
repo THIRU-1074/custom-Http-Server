@@ -37,12 +37,16 @@ public final class ConnectionHandler implements Runnable {
     private volatile boolean idle;
 
     public ConnectionHandler(
-            Socket socket, JoltConfig config, Dispatcher dispatcher, BooleanSupplier draining) {
+            Socket socket,
+            JoltConfig config,
+            Dispatcher dispatcher,
+            BooleanSupplier draining,
+            TrustedProxies trusted) {
         this.socket = socket;
         this.config = config;
         this.dispatcher = dispatcher;
         this.draining = draining;
-        this.trusted = TrustedProxies.from(config);
+        this.trusted = trusted;
     }
 
     /** Closes the socket if no request is in flight. */

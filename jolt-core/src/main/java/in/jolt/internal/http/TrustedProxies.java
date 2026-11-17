@@ -34,10 +34,6 @@ public final class TrustedProxies {
         return of(config.trustedProxies());
     }
 
-    public boolean isEmpty() {
-        return nets.isEmpty();
-    }
-
     /**
      * Builds the request for a connection from {@code peer}. Only when the peer is trusted do the
      * forwarded address, scheme and host replace the peer's own.
