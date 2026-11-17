@@ -1,6 +1,6 @@
-# Jolt 0.4.0 release notes (draft)
+# Jolt 0.4.0 release notes
 
-Release candidate branch `release/0.4.0-rc`. Versions are not bumped and nothing is tagged. ADRs 0014 to 0021 were renumbered so every number is unique.
+Fifteen issues raised while building BookMyShow on Jolt (`from-bms`). ADRs 0014 to 0023.
 
 ## #52 Multi-valued query parameters (already on main)
 `req.queryAll(name)` and `queryAll(name, Class)` on `Params`; `query(name)` stays the first value. ADR 0012.
