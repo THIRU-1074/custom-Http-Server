@@ -40,6 +40,7 @@ app.exposeMetrics() (opt-in, idempotent) serves GET /_jolt/health ({"status":"UP
 app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines.
 
 ## Dev and tooling
+JoltTest captures res.sse()/res.stream() in memory: result.events() (List<JoltTest.Event(name,data,id)>), text()/bytes() hold the streamed body; call.maxEvents(n) makes the nth+1 write throw IOException, call.timeout(Duration) drops the stream and interrupts a blocked handler; a throw after streaming began leaves status and output and shows in result.streamError(); WebSocket stays 501.
 jolt-dev (dev only, dep jolt-dev): class DevMain{main(){Dev.run("app.Main",Path.of("target/classes"));}}; run mvn -q compile exec:exec -Dexec.executable=java "-Dexec.args=-cp %classpath app.DevMain" (not exec:java), recompile to restart; child gets JOLT_DEV=1; app.use(DevErrors.page(app)) first renders non-HttpException, unmapped errors as HTML only when JOLT_DEV or -Djolt.dev=true.
 mvn archetype:generate -DarchetypeGroupId=com.github.THIRU-1074.custom-Http-Server -DarchetypeArtifactId=jolt-archetype -DarchetypeVersion=<tag> -DarchetypeRepository=https://jitpack.io scaffolds a Jolt app (pom with jolt.version, Main, JoltTest test, llms.txt, AGENTS.md).
 
