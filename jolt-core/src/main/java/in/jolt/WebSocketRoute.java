@@ -1,6 +1,6 @@
 package in.jolt;
 
-import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.Live;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -52,19 +52,11 @@ public final class WebSocketRoute {
         if (!originAllowed(req)) {
             throw new HttpException(HttpStatus.FORBIDDEN, "Origin not allowed");
         }
-        ConnectionHandler host = res.host();
-        if (host == null) {
+        Live live = res.live();
+        if (live == null) {
             throw new HttpException(HttpStatus.NOT_IMPLEMENTED, "WebSocket needs a live server");
         }
-        host.take();
-        String head =
-                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                        + "Sec-WebSocket-Accept: "
-                        + accept(key)
-                        + "\r\n\r\n";
-        host.out().write(head.getBytes(StandardCharsets.ISO_8859_1));
-        host.out().flush();
-        new WebSocketSession(req, host, handler).run();
+        live.upgrade(req, accept(key), handler);
     }
 
     private boolean originAllowed(Request req) {

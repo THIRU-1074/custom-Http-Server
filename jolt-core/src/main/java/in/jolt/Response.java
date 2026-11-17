@@ -1,7 +1,6 @@
 package in.jolt;
 
-import in.jolt.internal.http.ConnectionHandler;
-import in.jolt.internal.http.ResponseWriter;
+import in.jolt.internal.http.Live;
 import in.jolt.internal.view.Views;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -52,7 +51,7 @@ public final class Response {
     private boolean secureCookies;
     private Request req;
     private long maxFileBytes = 10L * 1024 * 1024;
-    private ConnectionHandler host;
+    private Live live;
     private ResponseStream stream;
 
     public Response(JsonMapper mapper) {
@@ -90,8 +89,8 @@ public final class Response {
     }
 
     /** Connects this response to its connection; the server sets this. */
-    public Response host(ConnectionHandler connection) {
-        this.host = connection;
+    public Response live(Live connection) {
+        this.live = connection;
         return this;
     }
 
@@ -105,19 +104,11 @@ public final class Response {
         if (stream != null) {
             return stream;
         }
-        if (host == null || sent) {
+        if (live == null || sent) {
             throw new IllegalStateException(
                     "Cannot stream: no live connection or body already set");
         }
-        host.take();
-        var guard = host.guard();
-        try {
-            ResponseWriter.writeStreamHead(host.out(), this);
-        } catch (IOException e) {
-            guard.close();
-            throw e;
-        }
-        stream = new ResponseStream(host.out(), guard);
+        stream = new ResponseStream(live.open(this));
         return stream;
     }
 
@@ -129,8 +120,8 @@ public final class Response {
         return new EventStream(stream());
     }
 
-    ConnectionHandler host() {
-        return host;
+    Live live() {
+        return live;
     }
 
     /** True once {@link #stream} or {@link #sse} has committed the response. */

@@ -6,6 +6,7 @@ import in.jolt.JoltConfig;
 import in.jolt.Reply;
 import in.jolt.Request;
 import in.jolt.Response;
+import in.jolt.WebSocketHandler;
 import java.io.BufferedInputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -36,6 +37,7 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
+    private static final byte[] LAST_CHUNK = "0\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
 
     private final Socket socket;
     private final JoltConfig config;
@@ -43,9 +45,14 @@ public final class ConnectionHandler implements Runnable {
     private final BooleanSupplier draining;
     private final TrustedProxies trusted;
     private volatile boolean idle;
+    private final Live wire = new Wire();
     private OutputStream out;
     private InputStream in;
     private boolean taken;
+    private boolean websocket;
+    private boolean http10;
+    private boolean head;
+    private StreamSink sink;
 
     public ConnectionHandler(
             Socket socket,
@@ -60,40 +67,95 @@ public final class ConnectionHandler implements Runnable {
         this.trusted = trusted;
     }
 
-    /** The connection's output, for handlers that take it over. */
-    public OutputStream out() {
-        return out;
+    private final class Wire implements Live {
+
+        @Override
+        public StreamSink open(Response res) throws IOException {
+            take(false);
+            StreamGuard guard =
+                    new StreamGuard(socket, config.streamIdleTimeout(), config.streamMaxDuration());
+            boolean chunked = !http10;
+            try {
+                ResponseWriter.writeStreamHead(out, res, chunked);
+            } catch (IOException e) {
+                guard.close();
+                throw e;
+            }
+            sink = new Sink(guard, chunked, head);
+            return sink;
+        }
+
+        @Override
+        public void upgrade(Request req, String accept, WebSocketHandler handler)
+                throws IOException {
+            take(true);
+            String reply =
+                    "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                            + "Connection: Upgrade\r\nSec-WebSocket-Accept: "
+                            + accept
+                            + "\r\n\r\n";
+            out.write(reply.getBytes(StandardCharsets.ISO_8859_1));
+            out.flush();
+            new WebSocketConnection(req, socket, in, out, config, handler).run();
+        }
     }
 
-    /**
-     * Marks the connection as taken over by the handler: no response is written, it then closes.
-     */
-    public void take() {
-        taken = true;
-    }
+    private final class Sink implements StreamSink {
+        private final StreamGuard guard;
+        private final boolean chunked;
+        private final boolean discard;
 
-    /** The connection's input, positioned after the request headers. */
-    public InputStream in() {
-        return in;
-    }
+        Sink(StreamGuard guard, boolean chunked, boolean discard) {
+            this.guard = guard;
+            this.chunked = chunked;
+            this.discard = discard;
+        }
 
-    public JoltConfig config() {
-        return config;
-    }
+        @Override
+        public void write(byte[] data) throws IOException {
+            if (discard) {
+                return;
+            }
+            byte[] size = Integer.toHexString(data.length).getBytes(StandardCharsets.US_ASCII);
+            int overhead = chunked ? size.length + 4 : 0;
+            byte[] buf = new byte[overhead + data.length];
+            int at = 0;
+            if (chunked) {
+                System.arraycopy(size, 0, buf, 0, size.length);
+                buf[size.length] = '\r';
+                buf[size.length + 1] = '\n';
+                at = size.length + 2;
+            }
+            System.arraycopy(data, 0, buf, at, data.length);
+            if (chunked) {
+                buf[buf.length - 2] = '\r';
+                buf[buf.length - 1] = '\n';
+            }
+            guard.touch();
+            out.write(buf);
+            out.flush();
+            guard.touch();
+        }
 
-    /** The socket, for handlers that take the connection over. */
-    public Socket socket() {
-        return socket;
-    }
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
 
-    /** A guard applying the stream limits of the config to this connection. */
-    public StreamGuard guard() {
-        return guard(config.streamIdleTimeout(), config.streamMaxDuration());
-    }
+        @Override
+        public void close() throws IOException {
+            guard.close();
+            if (chunked && !discard) {
+                out.write(LAST_CHUNK);
+            }
+            out.flush();
+        }
 
-    /** A guard with explicit limits, see {@link StreamGuard}. */
-    public StreamGuard guard(java.time.Duration idle, java.time.Duration max) {
-        return new StreamGuard(socket, idle, max);
+        @Override
+        public void abort() {
+            guard.close();
+            closeQuietly(socket);
+        }
     }
 
     /** Closes the socket if no request is in flight. */
@@ -172,8 +234,8 @@ public final class ConnectionHandler implements Runnable {
                 }
                 Response res = handle(parsed);
                 if (taken) {
-                    if (res.isStreaming()) {
-                        res.stream().close();
+                    if (sink != null) {
+                        sink.close();
                     }
                     return;
                 }
@@ -191,7 +253,17 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
+    private void take(boolean ws) throws IOException {
+        if (taken) {
+            throw new IllegalStateException("Connection already taken over");
+        }
+        taken = true;
+        websocket = ws;
+    }
+
     private Response handle(HttpParser.ParsedRequest p) {
+        http10 = p.version().equals("HTTP/1.0");
+        head = p.method().equals("HEAD");
         var peer = socket.getInetAddress();
         Request req =
                 trusted.request(
@@ -221,7 +293,7 @@ public final class ConnectionHandler implements Runnable {
                 new Response(mapper)
                         .secureCookies(config.secureCookies())
                         .maxFileBytes(config.maxStaticFileBytes())
-                        .host(host);
+                        .live(host == null ? null : host.wire);
         try {
             dispatcher.dispatch(req, res);
             return res;

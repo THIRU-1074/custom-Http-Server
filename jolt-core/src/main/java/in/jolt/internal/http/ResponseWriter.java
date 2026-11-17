@@ -40,10 +40,17 @@ public final class ResponseWriter {
         out.flush();
     }
 
-    /** Writes the status line and headers of a chunked response that ends the connection. */
-    public static void writeStreamHead(OutputStream out, Response res) throws IOException {
+    /**
+     * Writes the status line and headers of a streamed response that ends the connection; the body
+     * is chunked, or delimited by the close for HTTP/1.0.
+     */
+    public static void writeStreamHead(OutputStream out, Response res, boolean chunked)
+            throws IOException {
         StringBuilder sb = head(res);
-        sb.append("Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+        if (chunked) {
+            sb.append("Transfer-Encoding: chunked\r\n");
+        }
+        sb.append("Connection: close\r\n\r\n");
         out.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
         out.flush();
     }
