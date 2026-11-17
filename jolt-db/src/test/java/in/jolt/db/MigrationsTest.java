@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -195,6 +196,85 @@ class MigrationsTest {
         assertEquals(
                 0, db.query("select name from sqlite_master where name = 'b'", rs -> 1).size());
         assertEquals(0, db.inUse());
+    }
+
+    @Test
+    void historyRecordsSuccess() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        assertEquals(
+                List.of(true),
+                db.query("select success from jolt_schema_history", rs -> rs.getBoolean(1)));
+    }
+
+    @Test
+    void halfAppliedFileStopsLaterRuns() throws IOException {
+        file("V1__a.sql", "create table a(id integer); commit; insert into nope values (1);");
+        var first = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(first.getMessage().contains("V1__a.sql"), first.getMessage());
+        assertEquals(
+                List.of(false),
+                db.query("select success from jolt_schema_history", rs -> rs.getBoolean(1)));
+        file("V1__a.sql", "create table a(id integer);");
+        var next = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertEquals(
+                "migration V1 failed earlier and left a partial state; repair manually, then"
+                        + " delete the history row",
+                next.getMessage());
+        assertEquals(0, db.inUse());
+    }
+
+    void holdLockWhileAnotherRunnerApplies(String body, CountDownLatch held, long holdMs) {
+        db.inTransaction(
+                TxMode.IMMEDIATE,
+                tx -> {
+                    tx.update(
+                            "insert into jolt_schema_history(version, name, checksum, success,"
+                                    + " applied_at) values (2, 'b', ?, ?, 'now')",
+                            Migrations.checksum(Migrations.normalize(body)),
+                            true);
+                    held.countDown();
+                    Thread.sleep(holdMs);
+                    return null;
+                });
+    }
+
+    @Test
+    void runnerWaitsForTheLockThenSkipsAppliedVersions() throws Exception {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        String body = "create table b(id integer);";
+        file("V2__b.sql", body);
+        CountDownLatch held = new CountDownLatch(1);
+        Thread holder =
+                Thread.ofVirtual().start(() -> holdLockWhileAnotherRunnerApplies(body, held, 1000));
+        held.await();
+        try (Db other = Db.open("jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=0")) {
+            assertEquals(List.of(), Migrations.run(other, sql, Duration.ofSeconds(10)));
+        }
+        holder.join();
+        assertEquals(2, count("jolt_schema_history"));
+    }
+
+    @Test
+    void runnerFailsWhenTheLockOutlastsItsTimeout() throws Exception {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        String body = "create table b(id integer);";
+        file("V2__b.sql", body);
+        CountDownLatch held = new CountDownLatch(1);
+        Thread holder =
+                Thread.ofVirtual().start(() -> holdLockWhileAnotherRunnerApplies(body, held, 1000));
+        held.await();
+        try (Db other = Db.open("jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=0")) {
+            var e =
+                    assertThrows(
+                            DbException.class,
+                            () -> Migrations.run(other, sql, Duration.ofMillis(200)));
+            assertTrue(e.getMessage().contains("busy"), e.getMessage());
+            assertEquals(0, other.inUse());
+        }
+        holder.join();
     }
 
     @Test

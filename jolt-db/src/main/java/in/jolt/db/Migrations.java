@@ -52,6 +52,11 @@ public final class Migrations {
 
     /** Applies the pending migrations found in {@code dir} and returns them in order. */
     public static List<Applied> run(Db db, Path dir) {
+        return run(db, dir, DEFAULT_LOCK_TIMEOUT);
+    }
+
+    /** Like {@link #run(Db, Path)}, waiting up to {@code lockTimeout} for another runner. */
+    public static List<Applied> run(Db db, Path dir, Duration lockTimeout) {
         List<Source> sources = new ArrayList<>();
         try (var files = Files.list(dir)) {
             for (Path p : files.toList()) {
@@ -62,11 +67,16 @@ public final class Migrations {
         } catch (IOException e) {
             throw new DbException("cannot read migrations in " + dir + ": " + e.getMessage(), e);
         }
-        return apply(db, sources);
+        return apply(db, sources, lockTimeout);
     }
 
     /** Applies the pending migrations in a classpath folder, directory or jar. */
     public static List<Applied> runClasspath(Db db, String folder) {
+        return runClasspath(db, folder, DEFAULT_LOCK_TIMEOUT);
+    }
+
+    /** Like {@link #runClasspath(Db, String)}, waiting up to {@code lockTimeout}. */
+    public static List<Applied> runClasspath(Db db, String folder, Duration lockTimeout) {
         String base = folder.replaceAll("^/+|/+$", "");
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         if (loader == null) loader = Migrations.class.getClassLoader();
@@ -80,7 +90,7 @@ public final class Migrations {
         } catch (IOException | URISyntaxException e) {
             throw new DbException("cannot read migrations in " + folder + ": " + e.getMessage(), e);
         }
-        return apply(db, sources);
+        return apply(db, sources, lockTimeout);
     }
 
     private static void readUrl(URL url, String base, List<Source> out)
@@ -112,25 +122,26 @@ public final class Migrations {
         }
     }
 
-    private static List<Applied> apply(Db db, List<Source> sources) {
+    private record Row(long version, String checksum, boolean success) {}
+
+    private static List<Applied> apply(Db db, List<Source> sources, Duration lockTimeout) {
         List<Script> scripts = parse(sources);
         db.update(
                 "create table if not exists jolt_schema_history(version bigint primary key,"
                         + " name varchar(255) not null, checksum varchar(64) not null,"
-                        + " applied_at varchar(40) not null)");
-        TreeMap<Long, String> applied = new TreeMap<>();
-        for (String[] row :
-                db.query(
-                        "select version, checksum from jolt_schema_history",
-                        rs -> new String[] {rs.getString(1), rs.getString(2)})) {
-            applied.put(Long.parseLong(row[0]), row[1]);
+                        + " success boolean not null, applied_at varchar(40) not null)");
+        TreeMap<Long, Row> applied = new TreeMap<>();
+        for (Row row :
+                db.query("select version, checksum, success from jolt_schema_history", ROW)) {
+            if (!row.success()) throw partial(row.version());
+            applied.put(row.version(), row);
         }
         long latest = applied.isEmpty() ? -1 : applied.lastKey();
         List<Applied> done = new ArrayList<>();
         for (Script s : scripts) {
-            String known = applied.get(s.version());
+            Row known = applied.get(s.version());
             if (known != null) {
-                if (!known.equals(s.checksum())) throw changed(s);
+                if (!known.checksum().equals(s.checksum())) throw changed(s);
                 continue;
             }
             if (s.version() < latest) {
@@ -141,45 +152,61 @@ public final class Migrations {
                                 + latest
                                 + " is already applied");
             }
-            if (applyOne(db, s)) done.add(new Applied(s.version(), s.name()));
+            if (applyOne(db, s, lockTimeout)) done.add(new Applied(s.version(), s.name()));
         }
         return done;
     }
 
-    private static boolean applyOne(Db db, Script s) {
-        try {
-            db.transact(
-                    TxMode.IMMEDIATE,
-                    DEFAULT_LOCK_TIMEOUT,
-                    c -> {
-                        Jdbc.update(
-                                c,
-                                0,
-                                "insert into jolt_schema_history(version, name, checksum,"
-                                        + " applied_at) values (?, ?, ?, ?)",
-                                new Object[] {
-                                    s.version(), s.name(), s.checksum(), Instant.now().toString()
-                                });
-                        try {
-                            for (String statement : split(s.sql())) Jdbc.execute(c, statement);
-                        } catch (SQLException e) {
-                            throw new DbException(e.getMessage(), e);
-                        }
-                        return null;
-                    });
-            return true;
-        } catch (DbException e) {
-            Optional<String> other =
-                    db.queryOne(
-                            "select checksum from jolt_schema_history where version = ?",
-                            rs -> rs.getString(1),
-                            s.version());
-            if (other.isEmpty()) {
-                throw new DbException("migration " + s.file() + " failed: " + e.getMessage(), e);
-            }
-            if (!other.get().equals(s.checksum())) throw changed(s);
-            return false;
-        }
+    private static final RowMapper<Row> ROW =
+            rs -> new Row(rs.getLong(1), rs.getString(2), rs.getBoolean(3));
+
+    private static boolean applyOne(Db db, Script s, Duration lockTimeout) {
+        return db.transact(
+                TxMode.IMMEDIATE,
+                lockTimeout,
+                c -> {
+                    Optional<Row> other =
+                            Jdbc.queryOne(
+                                    c,
+                                    0,
+                                    "select version, checksum, success from jolt_schema_history"
+                                            + " where version = ?",
+                                    ROW,
+                                    new Object[] {s.version()});
+                    if (other.isPresent()) {
+                        if (!other.get().success()) throw partial(s.version());
+                        if (!other.get().checksum().equals(s.checksum())) throw changed(s);
+                        return false;
+                    }
+                    Jdbc.update(
+                            c,
+                            0,
+                            "insert into jolt_schema_history(version, name, checksum, success,"
+                                    + " applied_at) values (?, ?, ?, ?, ?)",
+                            new Object[] {
+                                s.version(), s.name(), s.checksum(), false, Instant.now().toString()
+                            });
+                    try {
+                        for (String statement : split(s.sql())) Jdbc.execute(c, statement);
+                    } catch (SQLException e) {
+                        throw new DbException(
+                                "migration " + s.file() + " failed: " + e.getMessage(), e);
+                    }
+                    Jdbc.update(
+                            c,
+                            0,
+                            "update jolt_schema_history set success = ? where version = ?",
+                            new Object[] {true, s.version()});
+                    return true;
+                });
+    }
+
+    private static DbException partial(long version) {
+        return new DbException(
+                "migration V"
+                        + version
+                        + " failed earlier and left a partial state; repair manually, then delete"
+                        + " the history row");
     }
 
     private static DbException changed(Script s) {
@@ -200,7 +227,7 @@ public final class Migrations {
             }
             long version = Long.parseLong(m.group(1));
             String text = normalize(new String(src.bytes(), StandardCharsets.UTF_8));
-            Script script = new Script(version, m.group(2), src.file(), text, sha256(text));
+            Script script = new Script(version, m.group(2), src.file(), text, checksum(text));
             Script clash = byVersion.putIfAbsent(version, script);
             if (clash != null) {
                 throw new DbException(
@@ -220,7 +247,7 @@ public final class Migrations {
         return s.replace("\r\n", "\n").replace('\r', '\n').stripTrailing();
     }
 
-    private static String sha256(String text) {
+    static String checksum(String text) {
         try {
             byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
