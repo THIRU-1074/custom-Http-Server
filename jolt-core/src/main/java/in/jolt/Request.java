@@ -252,6 +252,11 @@ public final class Request implements Params {
         return host == null ? headers.get("Host") : host;
     }
 
+    /** The id set by {@link RequestId#middleware()}, or {@code null} when it is not installed. */
+    public String id() {
+        return (String) attributes.get(RequestId.ATTRIBUTE);
+    }
+
     /** Per-request value set by middleware, or {@code null}. */
     public Object attr(String name) {
         return attributes.get(name);
