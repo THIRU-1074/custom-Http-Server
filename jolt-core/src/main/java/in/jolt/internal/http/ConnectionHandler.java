@@ -9,6 +9,7 @@ import in.jolt.Response;
 import java.io.BufferedInputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -38,6 +39,7 @@ public final class ConnectionHandler implements Runnable {
     private final TrustedProxies trusted;
     private volatile boolean idle;
     private OutputStream out;
+    private InputStream in;
     private boolean taken;
 
     public ConnectionHandler(
@@ -65,9 +67,28 @@ public final class ConnectionHandler implements Runnable {
         taken = true;
     }
 
+    /** The connection's input, positioned after the request headers. */
+    public InputStream in() {
+        return in;
+    }
+
+    public JoltConfig config() {
+        return config;
+    }
+
+    /** The socket, for handlers that take the connection over. */
+    public Socket socket() {
+        return socket;
+    }
+
     /** A guard applying the stream limits of the config to this connection. */
     public StreamGuard guard() {
-        return new StreamGuard(socket, config.streamIdleTimeout(), config.streamMaxDuration());
+        return guard(config.streamIdleTimeout(), config.streamMaxDuration());
+    }
+
+    /** A guard with explicit limits, see {@link StreamGuard}. */
+    public StreamGuard guard(java.time.Duration idle, java.time.Duration max) {
+        return new StreamGuard(socket, idle, max);
     }
 
     /** Closes the socket if no request is in flight. */
@@ -100,7 +121,7 @@ public final class ConnectionHandler implements Runnable {
                 socket.setSoTimeout((int) config.readTimeout().toMillis());
                 tls.startHandshake();
             }
-            var in = new BufferedInputStream(socket.getInputStream(), 8192);
+            in = new BufferedInputStream(socket.getInputStream(), 8192);
             out = socket.getOutputStream();
             for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
                 socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());

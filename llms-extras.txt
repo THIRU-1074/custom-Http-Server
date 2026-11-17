@@ -9,6 +9,7 @@ req.parts() reads multipart/form-data in memory: Part name(), filename() (saniti
 config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Forwarded-For (rightmost untrusted), -Proto, -Host applied to req.remoteAddress(), req.scheme(), req.host(); RateLimit.perIp then keys on the client.
 config.tls(keystorePath, password) or tls(SSLContext) serves HTTPS (TLS 1.2+, AEAD suites; req.scheme() is "https", usable in SecurityHeaders.hsts); plain HTTP stays default; a reverse proxy is still the usual production route.
 res.sse() (event(name, data), comment, retry; text/event-stream, unbuffered) and res.stream() (write(String|byte[]), close; chunked) run on the connection thread and end it when the handler returns; a gone client throws IOException; config.streamTimeouts(idle 60 s, max 1 h) closes stalled streams.
+app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) on the connection thread; WebSocketHandler onOpen/onText/onBinary/onClose or WebSocketHandler.text((s, m) -> s.send(m)); session send(String|byte[]), ping(), close(code, reason). Middleware runs before the upgrade. Origin must match Host unless listed; config.wsLimits(64 KB frame, 1 MB message) closes 1009.
 
 ## Response
 

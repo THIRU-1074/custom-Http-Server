@@ -108,6 +108,10 @@ public final class Response {
         return new EventStream(stream());
     }
 
+    ConnectionHandler host() {
+        return host;
+    }
+
     /** True once {@link #stream} or {@link #sse} has committed the response. */
     public boolean isStreaming() {
         return stream != null;

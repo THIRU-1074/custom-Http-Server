@@ -31,7 +31,9 @@ public record JoltConfig(
         boolean problemJson,
         SSLContext tls,
         Duration streamIdleTimeout,
-        Duration streamMaxDuration) {
+        Duration streamMaxDuration,
+        int wsMaxFrameBytes,
+        int wsMaxMessageBytes) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -53,7 +55,9 @@ public record JoltConfig(
                 false,
                 null,
                 Duration.ofSeconds(60),
-                Duration.ofHours(1));
+                Duration.ofHours(1),
+                64 * 1024,
+                1024 * 1024);
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -132,7 +136,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -155,7 +161,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -178,7 +186,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -201,7 +211,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -224,7 +236,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -247,7 +261,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -270,7 +286,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -293,7 +311,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -316,7 +336,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -339,7 +361,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -362,7 +386,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -389,7 +415,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -420,7 +448,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -451,7 +481,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -482,7 +514,9 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -509,7 +543,9 @@ public record JoltConfig(
                 v,
                 tls,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -536,7 +572,9 @@ public record JoltConfig(
                 problemJson,
                 context,
                 streamIdleTimeout,
-                streamMaxDuration);
+                streamMaxDuration,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
     }
 
     /**
@@ -578,6 +616,42 @@ public record JoltConfig(
                 problemJson,
                 tls,
                 idle,
-                max);
+                max,
+                wsMaxFrameBytes,
+                wsMaxMessageBytes);
+    }
+
+    /**
+     * Largest accepted WebSocket frame and message (fragments added up), in bytes; larger ones
+     * close the connection with code 1009. Defaults 64 KB and 1 MB.
+     *
+     * @throws IllegalArgumentException if either limit is not positive
+     */
+    public JoltConfig wsLimits(int maxFrameBytes, int maxMessageBytes) {
+        if (maxFrameBytes <= 0 || maxMessageBytes <= 0) {
+            throw new IllegalArgumentException("WebSocket limits must be positive");
+        }
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson,
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration,
+                maxFrameBytes,
+                maxMessageBytes);
     }
 }
