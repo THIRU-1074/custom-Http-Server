@@ -15,6 +15,7 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
     app.views(Path.of("views"), "layout")  res.render("page", Map.of("u", user))   // page.html: {{x}} escaped, {{{x}}} raw, a.b, {{#each xs}}{{.}}{{/each}}, {{#if x}}, {{> part}}; layout prints {{{content}}}; names confined to root, mtime-cached
     app.codec(new CsvCodec())  res.send(obj)   // BodyCodec{mediaType,read,write}: req.body(T) by Content-Type, res.send by Accept (JSON default); 415 unknown type once a codec exists, 406 no match
     app.use(Static.serve("/", dir).spaFallback("index.html"))   // MIME map, index.html (dir gets 301 to /), single Range + If-Range (206/416), 304; SPA fallback opt-in, only for unrouted browser navigations (Accept text/html, no dot)
+    app.use(Static.classpath("/", "/static"))  app.viewsClasspath("/views", "layout")   // jar or target/classes, context loader (or pass a ClassLoader); same rules as serve/views; jar ETag from size+CRC; templates read once
     res.json(x).etag()  res.cache(Duration.ofMinutes(5))  res.noStore()   // weak ETag + 304 on If-None-Match; max-age; no-store. sendFile/Static do 304 (ETag, Last-Modified) automatically
     app.use(Compress.gzip())              // opt-in; gzip(minBytes), default 1024; honours Accept-Encoding q=0, sets Vary; skips images/zip/encoded; BREACH: not for pages mixing secrets with user text
 

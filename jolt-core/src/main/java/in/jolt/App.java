@@ -2,6 +2,7 @@ package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
 import in.jolt.internal.http.Metrics;
+import in.jolt.internal.http.Resources;
 import in.jolt.internal.openapi.OpenApi;
 import in.jolt.internal.routing.Suggest;
 import in.jolt.internal.view.Views;
@@ -141,6 +142,21 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      */
     public App views(Path root, String layout) {
         views = new Views(root, layout);
+        return this;
+    }
+
+    /**
+     * As {@link #views(Path, String)} over class-path resources under {@code root} (for example
+     * {@code "/views"}) of the context class loader, from exploded classes or a jar; {@code layout}
+     * may be null. Templates are read once and cached.
+     */
+    public App viewsClasspath(String root, String layout) {
+        return viewsClasspath(root, layout, Thread.currentThread().getContextClassLoader());
+    }
+
+    /** As {@link #viewsClasspath(String, String)} with an explicit class loader. */
+    public App viewsClasspath(String root, String layout, ClassLoader loader) {
+        views = new Views(Resources.classpath(root, loader), layout);
         return this;
     }
 

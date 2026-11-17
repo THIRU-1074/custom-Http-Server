@@ -1,10 +1,14 @@
 package in.jolt.internal.view;
 
+import in.jolt.HttpException;
+import in.jolt.internal.http.Resources;
+import in.jolt.internal.http.Resources.Resource;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -40,6 +44,7 @@ public final class Views {
     private record Cached(Path file, FileTime modified, List<Node> nodes) {}
 
     private final Path root;
+    private final Resources resources;
     private final String layout;
     private final java.util.concurrent.atomic.AtomicLong checks =
             new java.util.concurrent.atomic.AtomicLong();
@@ -57,6 +62,14 @@ public final class Views {
         } catch (IOException e) {
             throw new IllegalArgumentException("Views root not found: " + root, e);
         }
+        this.resources = null;
+        this.layout = layout;
+    }
+
+    /** As {@link #Views(Path, String)} over class-path resources, cached once loaded. */
+    public Views(Resources resources, String layout) {
+        this.root = null;
+        this.resources = resources;
         this.layout = layout;
     }
 
@@ -103,6 +116,9 @@ public final class Views {
     private List<Node> load(String name) {
         checks.incrementAndGet();
         Cached c = cache.get(name);
+        if (resources != null) {
+            return c != null ? c.nodes : loadResource(name);
+        }
         try {
             if (c != null && Files.getLastModifiedTime(c.file).equals(c.modified)) {
                 return c.nodes;
@@ -123,7 +139,21 @@ public final class Views {
         }
     }
 
-    private Path resolve(String name) {
+    private List<Node> loadResource(String name) {
+        checkName(name);
+        try {
+            Resource r = resources.find(name.endsWith(".html") ? name : name + ".html");
+            String src =
+                    new String(r.body().read(0, Math.toIntExact(r.size())), StandardCharsets.UTF_8);
+            List<Node> nodes = parse(src, name);
+            cache.put(name, new Cached(null, null, nodes));
+            return nodes;
+        } catch (HttpException | IOException e) {
+            throw new IllegalArgumentException("Template not found: " + name);
+        }
+    }
+
+    private static void checkName(String name) {
         if (name.isEmpty()
                 || name.startsWith("/")
                 || name.indexOf('\\') >= 0
@@ -136,6 +166,10 @@ public final class Views {
                 throw new IllegalArgumentException("Illegal template name");
             }
         }
+    }
+
+    private Path resolve(String name) {
+        checkName(name);
         try {
             Path file = root.resolve(name.endsWith(".html") ? name : name + ".html").normalize();
             if (!file.startsWith(root)) {
