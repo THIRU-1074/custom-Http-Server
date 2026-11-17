@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.Metrics;
 import in.jolt.internal.http.Tls;
 import in.jolt.internal.http.TrustedProxies;
 import java.io.IOException;
@@ -27,6 +28,7 @@ public final class Server implements AutoCloseable {
     private final JoltConfig config;
     private final ConnectionHandler.Dispatcher dispatcher;
     private final TrustedProxies trusted;
+    private final Metrics metrics;
     private final ServerSocket serverSocket;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore permits;
@@ -60,6 +62,7 @@ public final class Server implements AutoCloseable {
         this.config = config;
         this.dispatcher = dispatcher;
         this.trusted = TrustedProxies.from(config);
+        this.metrics = dispatcher.metrics();
         this.permits = new Semaphore(config.maxConnections());
         this.serverSocket = serverSocket;
         this.acceptor = new Thread(this::acceptLoop, "jolt-acceptor");
@@ -118,21 +121,30 @@ public final class Server implements AutoCloseable {
             }
             var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing, trusted);
             live.add(handler);
+            if (metrics != null) {
+                metrics.connectionOpened();
+            }
             try {
                 executor.execute(
                         () -> {
                             try {
                                 handler.run();
                             } finally {
-                                live.remove(handler);
-                                permits.release();
+                                release(handler);
                             }
                         });
             } catch (RuntimeException e) {
-                live.remove(handler);
-                permits.release();
+                release(handler);
                 handler.closeIfIdle();
             }
+        }
+    }
+
+    private void release(ConnectionHandler handler) {
+        live.remove(handler);
+        permits.release();
+        if (metrics != null) {
+            metrics.connectionClosed();
         }
     }
 

@@ -28,6 +28,11 @@ public final class ConnectionHandler implements Runnable {
         default Reply<?> mapError(Throwable t) {
             return null;
         }
+
+        /** Counters the server updates per connection, or {@code null} when not collecting. */
+        default Metrics metrics() {
+            return null;
+        }
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");

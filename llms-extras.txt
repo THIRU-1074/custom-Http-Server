@@ -22,5 +22,6 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
 ## Observability
 
 ## Dev and tooling
+app.exposeMetrics() (opt-in, call before other middleware) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, latency histogram, connections, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
 
 ## Modules
