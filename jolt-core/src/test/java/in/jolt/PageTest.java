@@ -162,6 +162,34 @@ class PageTest {
                 link(empty));
     }
 
+    private static String firstLink(String path) {
+        App app = Jolt.create();
+        app.get(
+                "/*",
+                (req, res) -> {
+                    Page.of(req).result(List.of(), 0).link(req, res);
+                    res.text("ok");
+                });
+        String link = JoltTest.of(app).get(path).expect(200).header("Link");
+        return link.substring(0, link.indexOf('>') + 1);
+    }
+
+    @Test
+    void linkBaseNeverLeavesTheHost() {
+        assertEquals("</movies?page=1&size=20>", firstLink("/movies"));
+        assertEquals("</evil.example/movies?page=1&size=20>", firstLink("/%2Fevil.example/movies"));
+        assertEquals(
+                "</evil.example/movies?page=1&size=20>", firstLink("/%2F%2Fevil.example/movies"));
+        Response res = new Response(null);
+        Request r = req("//evil.example/x", "");
+        Page.of(r).result(List.of(), 0).link(r, res);
+        assertTrue(link(res).startsWith("</evil.example/x?page=1"), link(res));
+        Response root = new Response(null);
+        Request slash = req("///", "");
+        Page.of(slash).result(List.of(), 0).link(slash, root);
+        assertTrue(link(root).startsWith("</?page=1"), link(root));
+    }
+
     @Test
     void pageBeyondTheEndHasNoNext() {
         Response res = new Response(null);

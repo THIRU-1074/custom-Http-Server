@@ -54,7 +54,7 @@ public record Page(int page, int size) {
 
         /** Sets a {@code Link} header (first, prev, next, last) keeping the other query params. */
         public Result<T> link(Request req, Response res) {
-            String base = Codec.percentEncode(req.path(), true) + "?" + otherParams(req.rawQuery());
+            String base = onHost(req.path()) + "?" + otherParams(req.rawQuery());
             long last = Math.max(totalPages, 1);
             StringBuilder sb = new StringBuilder();
             rel(sb, base, 1, "first");
@@ -91,6 +91,15 @@ public record Page(int page, int size) {
                     "Invalid query parameter '" + name + "': must be at least 1");
         }
         return n;
+    }
+
+    /** One leading slash, so the reference can never be scheme-relative ({@code //host}). */
+    private static String onHost(String path) {
+        int i = 0;
+        while (i < path.length() && path.charAt(i) == '/') {
+            i++;
+        }
+        return "/" + Codec.percentEncode(path.substring(i), true);
     }
 
     private static String otherParams(String rawQuery) {
