@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.function.BooleanSupplier;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
@@ -59,7 +60,7 @@ public final class ConnectionHandler implements Runnable {
                     config,
                     HttpStatus.SERVICE_UNAVAILABLE.code(),
                     "Server busy");
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             LOG.log(System.Logger.Level.DEBUG, "Rejecting connection failed", e);
         }
     }
@@ -187,8 +188,37 @@ public final class ConnectionHandler implements Runnable {
 
     private static void writeError(OutputStream out, JoltConfig config, int status, String message)
             throws IOException {
-        Response res = Replies.error(new Response(config.jsonMapper()), status, message, config);
+        String type = config.problemJson() ? "application/problem+json" : "text/plain";
+        String body =
+                config.problemJson()
+                        ? "{\"type\":\"about:blank\",\"title\":"
+                                + quote(HttpStatus.reasonFor(status))
+                                + ",\"status\":"
+                                + status
+                                + ",\"detail\":"
+                                + quote(message)
+                                + "}"
+                        : message;
+        Response res =
+                new Response(null)
+                        .status(status)
+                        .send(body.getBytes(StandardCharsets.UTF_8))
+                        .header("Content-Type", type + "; charset=utf-8");
         ResponseWriter.write(out, res, false, false);
+    }
+
+    private static String quote(String s) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (char c : String.valueOf(s).toCharArray()) {
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20) {
+                sb.append(String.format("\\u%04x", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
     }
 
     private static void closeQuietly(Socket s) {

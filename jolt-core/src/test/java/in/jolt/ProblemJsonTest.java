@@ -198,4 +198,60 @@ class ProblemJsonTest {
             }
         }
     }
+
+    private static final JsonMapper BROKEN =
+            new JsonMapper() {
+                @Override
+                public byte[] write(Object value) {
+                    throw new IllegalStateException("write");
+                }
+
+                @Override
+                public <T> T read(byte[] json, Class<T> type) {
+                    throw new IllegalArgumentException("read");
+                }
+            };
+
+    @Test
+    void rejectionsSurviveAThrowingMapperAndTheServerKeepsAccepting() throws IOException {
+        App app =
+                Jolt.create(
+                        JoltConfig.defaults()
+                                .jsonMapper(BROKEN)
+                                .problemJson(true)
+                                .maxConnections(1));
+        app.get("/x", (req, res) -> res.text("ok"));
+        try (Server s = app.listen(0);
+                var first = new RawClient(s.port())) {
+            for (int i = 0; i < 2; i++) {
+                try (var extra = new RawClient(s.port())) {
+                    RawClient.Reply r = extra.read();
+                    assertEquals(503, r.status());
+                    assertEquals(PROBLEM, r.header("Content-Type"));
+                    assertEquals(
+                            "{\"type\":\"about:blank\",\"title\":\"Service Unavailable\","
+                                    + "\"status\":503,\"detail\":\"Server busy\"}",
+                            r.text());
+                }
+            }
+            first.send("GET /x HTTP/1.1\r\nHost: t\r\n\r\n");
+            assertEquals("ok", first.read().text());
+        }
+    }
+
+    @Test
+    void protocolErrorsSurviveAThrowingMapper() throws IOException {
+        for (boolean problem : new boolean[] {true, false}) {
+            App app = Jolt.create(JoltConfig.defaults().jsonMapper(BROKEN).problemJson(problem));
+            try (Server s = app.listen(0);
+                    var c = new RawClient(s.port())) {
+                c.send("BROKEN\r\n\r\n");
+                RawClient.Reply r = c.read();
+                assertEquals(400, r.status());
+                assertTrue(
+                        r.header("Content-Type")
+                                .startsWith(problem ? "application/problem" : "text/plain"));
+            }
+        }
+    }
 }
