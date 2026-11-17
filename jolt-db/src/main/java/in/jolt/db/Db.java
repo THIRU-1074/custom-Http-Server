@@ -5,6 +5,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Semaphore;
@@ -21,6 +22,10 @@ public final class Db implements Sql, AutoCloseable {
     public static final int DEFAULT_SIZE = 8;
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
     public static final Duration DEFAULT_QUERY_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration DEFAULT_BUSY_TIMEOUT = Duration.ofSeconds(5);
+    public static final int DEFAULT_BATCH_CHUNK = 500;
+    private static final long BACKOFF_START_MS = 10;
+    private static final long BACKOFF_MAX_MS = 250;
 
     @FunctionalInterface
     interface Factory {
@@ -34,6 +39,8 @@ public final class Db implements Sql, AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final int size;
     private volatile int queryTimeoutSeconds = (int) DEFAULT_QUERY_TIMEOUT.toSeconds();
+    private volatile Duration busyTimeout = DEFAULT_BUSY_TIMEOUT;
+    private volatile Boolean sqlite;
 
     private Db(Factory factory, int size, Duration timeout) {
         if (size < 1) throw new IllegalArgumentException("pool size must be at least 1");
@@ -88,21 +95,86 @@ public final class Db implements Sql, AutoCloseable {
         return withConnection(c -> Jdbc.update(c, t, sql, args));
     }
 
+    @Override
+    public Optional<Long> insert(String sql, Object... args) {
+        int t = queryTimeoutSeconds;
+        return withConnection(c -> Jdbc.insert(c, t, sql, args));
+    }
+
+    /** Runs the batch in one transaction, so it is all or nothing. */
+    @Override
+    public int[] batch(String sql, List<Object[]> rows) {
+        return batch(sql, rows, DEFAULT_BATCH_CHUNK);
+    }
+
+    /** Like {@link #batch(String, List)}, sending {@code chunk} rows per round trip. */
+    public int[] batch(String sql, List<Object[]> rows, int chunk) {
+        int t = queryTimeoutSeconds;
+        return transact(TxMode.DEFERRED, busyTimeout, c -> Jdbc.batch(c, t, sql, rows, chunk));
+    }
+
+    /** Runs in its own transaction and rolls back when the count differs. */
+    @Override
+    public void updateExpecting(String sql, int expectedRows, Object... args) {
+        inTransaction(
+                tx -> {
+                    tx.updateExpecting(sql, expectedRows, args);
+                    return null;
+                });
+    }
+
+    /** Sets how long an IMMEDIATE transaction waits for a busy write lock, 5 seconds by default. */
+    public Db busyTimeout(Duration limit) {
+        if (limit.isNegative()) throw new IllegalArgumentException("timeout must not be negative");
+        this.busyTimeout = limit;
+        return this;
+    }
+
     /**
      * Runs {@code tx} on one connection and commits. Any throwable rolls back and is rethrown;
      * checked exceptions are wrapped in {@link DbException}. Do not call this pool from inside
      * {@code tx}.
      */
     public <T> T inTransaction(Tx<T> tx) {
+        return inTransaction(TxMode.DEFERRED, tx);
+    }
+
+    /**
+     * Like {@link #inTransaction(Tx)}. {@link TxMode#IMMEDIATE} takes the write lock at begin on
+     * SQLite, retrying with backoff while it is busy, then fails with a {@link DbException}. Other
+     * databases behave as DEFERRED.
+     */
+    public <T> T inTransaction(TxMode mode, Tx<T> tx) {
+        int t = queryTimeoutSeconds;
+        return transact(
+                mode,
+                busyTimeout,
+                c -> {
+                    ConnectionSql view = new ConnectionSql(c, t);
+                    try {
+                        return tx.run(view);
+                    } finally {
+                        view.end();
+                    }
+                });
+    }
+
+    <T> T transact(TxMode mode, Duration wait, ConnWork<T> work) {
         Connection c = acquire();
         boolean broken = false;
+        boolean manual = false;
+        boolean begun = false;
         try {
-            c.setAutoCommit(false);
-            T result = tx.run(new ConnectionSql(c, queryTimeoutSeconds));
-            c.commit();
+            manual = mode == TxMode.IMMEDIATE && isSqlite(c);
+            if (manual) beginImmediate(c, wait);
+            else c.setAutoCommit(false);
+            begun = true;
+            T result = work.run(c);
+            if (manual) exec(c, "COMMIT");
+            else c.commit();
             return result;
         } catch (Throwable e) {
-            broken = !rollback(c, e);
+            broken = ((!manual || begun) && !rollback(c, manual, e)) || connectionLost(c, e);
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             if (e instanceof RuntimeException re) throw re;
             if (e instanceof Error err) throw err;
@@ -130,7 +202,7 @@ public final class Db implements Sql, AutoCloseable {
         try {
             return fn.apply(c);
         } catch (SQLException e) {
-            broken = true;
+            broken = connectionLost(c, e);
             throw new DbException(e.getMessage(), e);
         } finally {
             release(c, broken);
@@ -170,6 +242,18 @@ public final class Db implements Sql, AutoCloseable {
         }
     }
 
+    private static boolean connectionLost(Connection c, Throwable e) {
+        boolean sql = false;
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof SQLException s) {
+                String state = s.getSQLState();
+                if (state != null && state.startsWith("08")) return true;
+                sql = true;
+            }
+        }
+        return sql && !isUsable(c);
+    }
+
     private void release(Connection c, boolean broken) {
         try {
             if (!broken && !c.getAutoCommit()) {
@@ -189,9 +273,70 @@ public final class Db implements Sql, AutoCloseable {
         }
     }
 
-    private static boolean rollback(Connection c, Throwable cause) {
+    private boolean isSqlite(Connection c) throws SQLException {
+        Boolean known = sqlite;
+        if (known == null) {
+            String product = c.getMetaData().getDatabaseProductName();
+            known = product != null && product.toLowerCase(Locale.ROOT).contains("sqlite");
+            sqlite = known;
+        }
+        return known;
+    }
+
+    private static void beginImmediate(Connection c, Duration wait) throws SQLException {
+        long start = System.nanoTime();
+        long delay = BACKOFF_START_MS;
+        while (true) {
+            try {
+                exec(c, "BEGIN IMMEDIATE");
+                return;
+            } catch (SQLException e) {
+                if (!isBusy(e)) throw e;
+                long left = wait.toMillis() - (System.nanoTime() - start) / 1_000_000;
+                if (left <= 0) {
+                    throw new DbException(
+                            "database busy: waited "
+                                    + (System.nanoTime() - start) / 1_000_000
+                                    + " ms for the write lock",
+                            e);
+                }
+                try {
+                    Thread.sleep(Math.min(delay, left));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new DbException("interrupted waiting for the write lock", ie);
+                }
+                delay = Math.min(delay * 2, BACKOFF_MAX_MS);
+            }
+        }
+    }
+
+    static boolean isBusy(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof SQLException s) {
+                int code = s.getErrorCode() & 0xFF;
+                String m = s.getMessage() == null ? "" : s.getMessage();
+                if (code == 5
+                        || code == 6
+                        || m.contains("SQLITE_BUSY")
+                        || m.contains("SQLITE_LOCKED")
+                        || m.contains("database is locked")
+                        || m.contains("table is locked")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void exec(Connection c, String sql) throws SQLException {
+        Jdbc.execute(c, sql);
+    }
+
+    private static boolean rollback(Connection c, boolean manual, Throwable cause) {
         try {
-            c.rollback();
+            if (manual) exec(c, "ROLLBACK");
+            else c.rollback();
             return true;
         } catch (SQLException e) {
             cause.addSuppressed(e);
@@ -212,7 +357,25 @@ public final class Db implements Sql, AutoCloseable {
         T apply(Connection c) throws SQLException;
     }
 
-    private record ConnectionSql(Connection c, int timeout) implements Sql {
+    @FunctionalInterface
+    interface ConnWork<T> {
+        T run(Connection c) throws Exception;
+    }
+
+    private static final class ConnectionSql implements Sql {
+        private final Connection c;
+        private final int timeout;
+        private volatile boolean ended;
+
+        ConnectionSql(Connection c, int timeout) {
+            this.c = c;
+            this.timeout = timeout;
+        }
+
+        void end() {
+            ended = true;
+        }
+
         @Override
         public <T> List<T> query(String sql, RowMapper<T> mapper, Object... args) {
             return wrap(() -> Jdbc.query(c, timeout, sql, mapper, args));
@@ -228,7 +391,18 @@ public final class Db implements Sql, AutoCloseable {
             return wrap(() -> Jdbc.update(c, timeout, sql, args));
         }
 
-        private static <T> T wrap(SqlSupplier<T> s) {
+        @Override
+        public Optional<Long> insert(String sql, Object... args) {
+            return wrap(() -> Jdbc.insert(c, timeout, sql, args));
+        }
+
+        @Override
+        public int[] batch(String sql, List<Object[]> rows) {
+            return wrap(() -> Jdbc.batch(c, timeout, sql, rows, DEFAULT_BATCH_CHUNK));
+        }
+
+        private <T> T wrap(SqlSupplier<T> s) {
+            if (ended) throw new IllegalStateException("transaction already ended");
             try {
                 return s.get();
             } catch (SQLException e) {
