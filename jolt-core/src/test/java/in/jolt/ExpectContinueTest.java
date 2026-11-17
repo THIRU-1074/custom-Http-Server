@@ -103,6 +103,28 @@ class ExpectContinueTest {
     }
 
     @Test
+    void requestsThatWillBeRejectedGetTheirErrorWithoutA100() throws IOException {
+        String[][] cases = {
+            {"Content-Length: 1\r\nTransfer-Encoding: chunked", "400"},
+            {"Transfer-Encoding: gzip", "501"},
+            {"Content-Length: 5, 5", "400"},
+            {"Content-Length: 5\r\nContent-Length: 6", "400"},
+            {"Content-Length: abc", "400"},
+            {"Content-Length: -1", "400"},
+            {"Content-Length: 11", "413"},
+        };
+        int port = start(JoltConfig.defaults().maxBodyBytes(10));
+        for (String[] c : cases) {
+            try (var c1 = new RawClient(port)) {
+                c1.send(head("HTTP/1.1", "100-continue", c[0]));
+                assertEquals(Integer.parseInt(c[1]), c1.read().status(), c[0]);
+                assertTrue(c1.isClosedByPeer(), c[0]);
+            }
+        }
+        assertEquals(0, handled.get());
+    }
+
+    @Test
     void otherExpectationsGet417() throws IOException {
         int port = start(JoltConfig.defaults());
         try (var c = new RawClient(port)) {

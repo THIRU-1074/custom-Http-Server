@@ -114,25 +114,24 @@ public final class HttpParser {
             headers.merge(name, value, (a, b) -> a + sep + b);
         }
 
-        if (headers.containsKey("Expect") && version.equals("HTTP/1.1")) {
-            expect(headers, limits, interim);
-        }
-        byte[] body = readBody(in, headers, limits);
+        byte[] body = readBody(in, headers, limits, expectation(headers, version, interim));
         return new ParsedRequest(method, path, rawQuery, version, headers, body);
     }
 
-    private static void expect(Map<String, String> headers, Limits limits, OutputStream interim)
-            throws IOException {
-        if (!headers.get("Expect").equalsIgnoreCase("100-continue")) {
+    private static OutputStream expectation(
+            Map<String, String> headers, String version, OutputStream interim) {
+        String expect = headers.get("Expect");
+        if (expect == null || !version.equals("HTTP/1.1")) {
+            return null;
+        }
+        if (!expect.equalsIgnoreCase("100-continue")) {
             throw new HttpException(HttpStatus.EXPECTATION_FAILED, "Unsupported Expect");
         }
-        String cl = headers.get("Content-Length");
-        boolean body = headers.containsKey("Transfer-Encoding");
-        if (cl != null && cl.length() < 10 && cl.chars().allMatch(Character::isDigit)) {
-            long len = Long.parseLong(cl);
-            body = len > 0 && len <= limits.maxBodyBytes();
-        }
-        if (body && interim != null) {
+        return interim;
+    }
+
+    private static void sendContinue(OutputStream interim) throws IOException {
+        if (interim != null) {
             interim.write(CONTINUE);
             interim.flush();
         }
@@ -182,7 +181,8 @@ public final class HttpParser {
         }
     }
 
-    private static byte[] readBody(InputStream in, Map<String, String> headers, Limits limits)
+    private static byte[] readBody(
+            InputStream in, Map<String, String> headers, Limits limits, OutputStream interim)
             throws IOException {
         int max = limits.maxBodyBytes();
         String te = headers.get("Transfer-Encoding");
@@ -194,6 +194,7 @@ public final class HttpParser {
                 throw new HttpException(
                         HttpStatus.NOT_IMPLEMENTED, "Unsupported Transfer-Encoding");
             }
+            sendContinue(interim);
             return readChunked(in, limits);
         }
         String cl = headers.get("Content-Length");
@@ -211,6 +212,9 @@ public final class HttpParser {
         }
         if (len > max) {
             throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "Body too large");
+        }
+        if (len > 0) {
+            sendContinue(interim);
         }
         return readExactly(in, (int) len);
     }
