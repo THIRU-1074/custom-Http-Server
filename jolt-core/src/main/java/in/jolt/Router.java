@@ -221,6 +221,16 @@ public class Router {
         return this;
     }
 
+    /**
+     * Serves WebSocket connections at {@code path} (a GET route, so middleware such as
+     * authentication runs before the upgrade). Needs a live server, not {@code JoltTest}.
+     */
+    public WebSocketRoute ws(String path, WebSocketHandler handler) {
+        WebSocketRoute route = new WebSocketRoute(handler);
+        get(path, route::handshake);
+        return route;
+    }
+
     /** Runs {@code mw} for every request, in registration order. */
     public Router use(Middleware mw) {
         return use("/", mw);

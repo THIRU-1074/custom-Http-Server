@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.Metrics;
 import in.jolt.internal.openapi.OpenApi;
 import in.jolt.internal.routing.Suggest;
 import in.jolt.internal.view.Views;
@@ -33,6 +34,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private volatile Views views;
     private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
+    private volatile Metrics metrics;
 
     App(JoltConfig config) {
         this.config = config;
@@ -160,6 +162,45 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
                 (req, res) ->
                         res.send(openApi().getBytes(StandardCharsets.UTF_8))
                                 .header("Content-Type", "application/json; charset=utf-8"));
+        return this;
+    }
+
+    @Override
+    public Metrics metrics() {
+        return metrics;
+    }
+
+    /**
+     * Opt-in monitoring: {@code GET /_jolt/health} ({@code {"status":"UP"}}) and {@code GET
+     * /_jolt/metrics} (Prometheus text: request counts by method and status class, latency
+     * histogram, connections, streams, body bytes). Counts the status each client actually
+     * received, after error mappers; streams and WebSockets are counted separately and stay out of
+     * the latency histogram.
+     */
+    public App exposeMetrics() {
+        return exposeMetrics(null);
+    }
+
+    /**
+     * As {@link #exposeMetrics()}, with {@code guard} run before {@code /_jolt/metrics}. A second
+     * call has no effect, whatever its guard. May be called after {@link #listen}.
+     */
+    public App exposeMetrics(Middleware guard) {
+        if (metrics != null) {
+            return this;
+        }
+        Metrics m = new Metrics();
+        metrics = m;
+        get("/_jolt/health", (req, res) -> res.json(Map.of("status", "UP")));
+        Handler scrape =
+                (req, res) ->
+                        res.send(m.render().getBytes(StandardCharsets.UTF_8))
+                                .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+        if (guard == null) {
+            get("/_jolt/metrics", scrape);
+        } else {
+            get("/_jolt/metrics", guard, scrape);
+        }
         return this;
     }
 

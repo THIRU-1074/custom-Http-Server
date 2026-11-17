@@ -7,6 +7,9 @@ Expect: 100-continue is answered before the body is read; declared length over m
 JSON binds Instant, LocalDate/Time, LocalDateTime, Offset/ZonedDateTime, Duration (ISO), UUID, BigDecimal, enums (by name) and Optional (empty: omitted in records, null in Map/List); bad values give 400.
 req.parts() reads multipart/form-data in memory: Part name(), filename() (sanitised, null for fields), contentType(), bytes(), text(). Limits maxParts(10), maxPartBytes(1 MB), maxBodyBytes: 413; malformed 400; other types 415.
 config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Forwarded-For (rightmost untrusted), -Proto, -Host applied to req.remoteAddress(), req.scheme(), req.host(); RateLimit.perIp then keys on the client.
+config.tls(keystorePath, password) or tls(SSLContext) serves HTTPS (TLS 1.2+, forward-secret AEAD suites; req.scheme() is "https", usable in SecurityHeaders.hsts); plain HTTP stays default; a reverse proxy is still the usual production route.
+res.sse() (event(name, data), comment, retry; text/event-stream, unbuffered) and res.stream() (write(String|byte[]), close; chunked) run on the connection thread and end it when the handler returns; a gone client throws IOException, a handler failure truncates the body; HEAD discards, HTTP/1.0 is close-delimited; config.streamTimeouts(idle 60 s, max 1 h; 0 = no cap) closes stalled streams.
+app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) on the connection thread; WebSocketHandler onOpen/onText/onBinary/onClose or WebSocketHandler.text((s, m) -> s.send(m)); session send(String|byte[]), ping(), close(code, reason). Middleware runs before the upgrade. Origin must match Host unless listed; config.wsLimits(64 KB frame, 1 MB message) closes 1009; idle: ping after streamTimeouts idle, drop after 2x, max caps total.
 
 ## Response
     app.views(Path.of("views"), "layout")  res.render("page", Map.of("u", user))   // page.html: {{x}} escaped, {{{x}}} raw, a.b, {{#each xs}}{{.}}{{/each}}, {{#if x}}, {{> part}}; layout prints {{{content}}}; names confined to root, mtime-cached
@@ -26,6 +29,7 @@ app.use(Csrf.protect()): POST/PUT/PATCH/DELETE with cookies need Sec-Fetch-Site 
 RefreshTokens.of(jwt) (.accessTtl 15m, .refreshTtl 30d, .store(RefreshStore), .claims(subject->map), .onRevoke((subject,family)->..)): issue(subject), refresh(token) rotates (opaque 256-bit token, SHA-256 hash stored); reuse revokes the family (rotation is atomic in the store); failures throw HttpException 401, a full store 503 (20 live tokens per subject, 10000 total); revoke(token), revokeAll(subject).
 
 ## Observability
+app.exposeMetrics() (opt-in, idempotent) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, final status after error mappers, latency histogram without streams, connections, streams, WebSocket gauges, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
 app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines.
 
 ## Dev and tooling

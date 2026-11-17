@@ -25,23 +25,7 @@ public final class ResponseWriter {
         int status = res.statusCode();
         boolean noBody = status == 204 || status == 304 || status < 200;
         byte[] body = res.body();
-        StringBuilder sb = new StringBuilder(256);
-        sb.append("HTTP/1.1 ").append(status).append(' ').append(HttpStatus.reasonFor(status));
-        sb.append("\r\n");
-        for (Map.Entry<String, String> h : res.headers()) {
-            String name = h.getKey();
-            if (name.equalsIgnoreCase("Content-Length")
-                    || name.equalsIgnoreCase("Connection")
-                    || name.equalsIgnoreCase("Transfer-Encoding")) {
-                continue;
-            }
-            sb.append(name).append(": ").append(h.getValue()).append("\r\n");
-        }
-        sb.append("Date: ")
-                .append(
-                        DateTimeFormatter.RFC_1123_DATE_TIME.format(
-                                ZonedDateTime.now(ZoneOffset.UTC)))
-                .append("\r\n");
+        StringBuilder sb = head(res);
         if (!noBody) {
             sb.append("Content-Length: ").append(body.length).append("\r\n");
         }
@@ -54,5 +38,41 @@ public final class ResponseWriter {
         }
         out.write(buf.toByteArray());
         out.flush();
+    }
+
+    /**
+     * Writes the status line and headers of a streamed response that ends the connection; the body
+     * is chunked, or delimited by the close for HTTP/1.0.
+     */
+    public static void writeStreamHead(OutputStream out, Response res, boolean chunked)
+            throws IOException {
+        StringBuilder sb = head(res);
+        if (chunked) {
+            sb.append("Transfer-Encoding: chunked\r\n");
+        }
+        sb.append("Connection: close\r\n\r\n");
+        out.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
+        out.flush();
+    }
+
+    private static StringBuilder head(Response res) {
+        int status = res.statusCode();
+        StringBuilder sb = new StringBuilder(256);
+        sb.append("HTTP/1.1 ").append(status).append(' ').append(HttpStatus.reasonFor(status));
+        sb.append("\r\n");
+        for (Map.Entry<String, String> h : res.headers()) {
+            String name = h.getKey();
+            if (name.equalsIgnoreCase("Content-Length")
+                    || name.equalsIgnoreCase("Connection")
+                    || name.equalsIgnoreCase("Transfer-Encoding")) {
+                continue;
+            }
+            sb.append(name).append(": ").append(h.getValue()).append("\r\n");
+        }
+        return sb.append("Date: ")
+                .append(
+                        DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                                ZonedDateTime.now(ZoneOffset.UTC)))
+                .append("\r\n");
     }
 }

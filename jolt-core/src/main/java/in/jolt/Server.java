@@ -1,6 +1,8 @@
 package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.Metrics;
+import in.jolt.internal.http.Tls;
 import in.jolt.internal.http.TrustedProxies;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -12,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLServerSocket;
 
 /**
  * A running server. One virtual thread serves each connection, bounded by {@code maxConnections}.
@@ -37,10 +40,21 @@ public final class Server implements AutoCloseable {
 
     Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
             throws IOException {
-        this(
-                config,
-                new ServerSocket(port, 1024, InetAddress.getByName(config.bindAddress())),
-                dispatcher);
+        this(config, bind(config, port), dispatcher);
+    }
+
+    private static ServerSocket bind(JoltConfig config, int port) throws IOException {
+        InetAddress address = InetAddress.getByName(config.bindAddress());
+        if (config.tls() == null) {
+            return new ServerSocket(port, 1024, address);
+        }
+        var socket =
+                (SSLServerSocket)
+                        config.tls()
+                                .getServerSocketFactory()
+                                .createServerSocket(port, 1024, address);
+        Tls.harden(socket);
+        return socket;
     }
 
     Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {
@@ -105,21 +119,32 @@ public final class Server implements AutoCloseable {
             }
             var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing, trusted);
             live.add(handler);
+            Metrics opened = dispatcher.metrics();
+            if (opened != null) {
+                opened.connectionOpened();
+            }
             try {
                 executor.execute(
                         () -> {
                             try {
                                 handler.run();
                             } finally {
-                                live.remove(handler);
-                                permits.release();
+                                release(handler);
                             }
                         });
             } catch (RuntimeException e) {
-                live.remove(handler);
-                permits.release();
+                release(handler);
                 handler.closeIfIdle();
             }
+        }
+    }
+
+    private void release(ConnectionHandler handler) {
+        live.remove(handler);
+        permits.release();
+        Metrics m = dispatcher.metrics();
+        if (m != null) {
+            m.connectionClosed();
         }
     }
 
