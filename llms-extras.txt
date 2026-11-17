@@ -11,6 +11,7 @@ config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Fo
 ## Response
 
 ## Routing
+Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the next route, then 404), /files/:name? (optional last param). Order: static, constrained, plain, wildcard. Bad regex or duplicate names: IllegalArgumentException at registration.
 
 ## Security
 
