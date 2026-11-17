@@ -10,12 +10,12 @@
     <dependency>
       <groupId>in.jolt</groupId>
       <artifactId>jolt-core</artifactId>
-      <version>0.3.0</version>
+      <version>0.3.1</version>
     </dependency>
     <dependency>
       <groupId>in.jolt</groupId>
       <artifactId>jolt-mcp</artifactId>
-      <version>0.3.0</version>
+      <version>0.3.1</version>
     </dependency>
   </dependencies>
 </project>
