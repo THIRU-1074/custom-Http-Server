@@ -7,12 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import in.jolt.db.Migrations.Applied;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -295,13 +300,14 @@ class MigrationsTest {
         assertThrows(DbException.class, () -> Migrations.runClasspath(db, "db/nothing"));
     }
 
-    @Test
-    void appliesFromJar() throws Exception {
-        Path jar = dir.resolve("m.jar");
+    Path jar(String name, boolean dirEntry) throws IOException {
+        Path jar = dir.resolve(name);
         try (OutputStream out = Files.newOutputStream(jar);
                 JarOutputStream jos = new JarOutputStream(out)) {
-            jos.putNextEntry(new JarEntry("mig/"));
-            jos.closeEntry();
+            if (dirEntry) {
+                jos.putNextEntry(new JarEntry("mig/"));
+                jos.closeEntry();
+            }
             jos.putNextEntry(new JarEntry("mig/V1__j.sql"));
             jos.write("create table j(id integer);".getBytes());
             jos.closeEntry();
@@ -309,13 +315,68 @@ class MigrationsTest {
             jos.write("create table no(id integer);".getBytes());
             jos.closeEntry();
         }
+        return jar;
+    }
+
+    List<Applied> withLoader(ClassLoader cl, String folder) {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
-        try (URLClassLoader cl = new URLClassLoader(new URL[] {jar.toUri().toURL()}, previous)) {
+        try {
             Thread.currentThread().setContextClassLoader(cl);
-            assertEquals(List.of(new Applied(1, "j")), Migrations.runClasspath(db, "mig"));
+            return Migrations.runClasspath(db, folder);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
+    }
+
+    @Test
+    void appliesFromJarWithAndWithoutDirectoryEntries() throws Exception {
+        try (URLClassLoader cl =
+                new URLClassLoader(new URL[] {jar("m.jar", false).toUri().toURL()}, null)) {
+            assertEquals(List.of(new Applied(1, "j")), withLoader(cl, "mig"));
+        }
+        try (URLClassLoader cl =
+                new URLClassLoader(new URL[] {jar("d.jar", true).toUri().toURL()}, null)) {
+            assertEquals(List.of(), withLoader(cl, "mig"));
+        }
+    }
+
+    @Test
+    void identicalFilesOnTwoRootsApplyOnceAndConflictsFail() throws Exception {
+        Path a = Files.createDirectories(dir.resolve("a/mig"));
+        Path b = Files.createDirectories(dir.resolve("b/mig"));
+        Files.writeString(a.resolve("V1__x.sql"), "create table x(id integer);");
+        Files.writeString(b.resolve("V1__x.sql"), "create table x(id integer);\r\n");
+        URL[] roots = {dir.resolve("a").toUri().toURL(), dir.resolve("b").toUri().toURL()};
+        try (URLClassLoader cl = new URLClassLoader(roots, null)) {
+            assertEquals(List.of(new Applied(1, "x")), withLoader(cl, "mig"));
+        }
+        Files.writeString(b.resolve("V2__y.sql"), "create table y(id integer);");
+        Files.writeString(a.resolve("V2__y.sql"), "create table z(id integer);");
+        try (URLClassLoader cl = new URLClassLoader(roots, null)) {
+            var e = assertThrows(DbException.class, () -> withLoader(cl, "mig"));
+            assertTrue(e.getMessage().contains("duplicate version 2"), e.getMessage());
+        }
+    }
+
+    @Test
+    void unsupportedSchemeIsRejected() {
+        URLStreamHandler handler =
+                new URLStreamHandler() {
+                    @Override
+                    protected URLConnection openConnection(URL u) throws IOException {
+                        throw new IOException("unreachable");
+                    }
+                };
+        ClassLoader odd =
+                new ClassLoader(null) {
+                    @Override
+                    public Enumeration<URL> getResources(String name) throws IOException {
+                        return Collections.enumeration(
+                                List.of(URL.of(URI.create("weird:/mig"), handler)));
+                    }
+                };
+        var e = assertThrows(IllegalArgumentException.class, () -> withLoader(odd, "mig"));
+        assertTrue(e.getMessage().contains("weird"), e.getMessage());
     }
 
     @Test

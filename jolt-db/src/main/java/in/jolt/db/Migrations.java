@@ -1,10 +1,12 @@
 package in.jolt.db;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.JarURLConnection;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,9 +16,12 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -81,45 +86,83 @@ public final class Migrations {
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         if (loader == null) loader = Migrations.class.getClassLoader();
         List<Source> sources = new ArrayList<>();
+        Set<Path> jars = new HashSet<>();
         try {
             var urls = loader.getResources(base);
-            if (!urls.hasMoreElements()) {
-                throw new DbException("no migrations folder on the classpath: " + folder);
+            while (urls.hasMoreElements()) readUrl(urls.nextElement(), base, sources, jars);
+            for (Path jar : jarRoots(loader)) {
+                if (jars.add(jar)) readJar(jar, base, sources);
             }
-            while (urls.hasMoreElements()) readUrl(urls.nextElement(), base, sources);
         } catch (IOException | URISyntaxException e) {
             throw new DbException("cannot read migrations in " + folder + ": " + e.getMessage(), e);
+        }
+        if (sources.isEmpty()) {
+            throw new DbException("no migrations on the classpath in " + folder);
         }
         return apply(db, sources, lockTimeout);
     }
 
-    private static void readUrl(URL url, String base, List<Source> out)
+    private static void readUrl(URL url, String base, List<Source> out, Set<Path> jars)
             throws IOException, URISyntaxException {
-        if (url.getProtocol().equals("jar")) {
-            JarURLConnection conn = (JarURLConnection) url.openConnection();
-            conn.setUseCaches(false);
-            try (JarFile jar = conn.getJarFile()) {
-                var entries = jar.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry e = entries.nextElement();
-                    String n = e.getName();
-                    if (e.isDirectory() || !n.startsWith(base + "/")) continue;
-                    String rest = n.substring(base.length() + 1);
-                    if (rest.indexOf('/') >= 0) continue;
-                    try (InputStream in = jar.getInputStream(e)) {
-                        out.add(new Source(rest, in.readAllBytes()));
+        switch (url.getProtocol()) {
+            case "jar" -> {
+                JarURLConnection conn = (JarURLConnection) url.openConnection();
+                URL file = conn.getJarFileURL();
+                if (!file.getProtocol().equals("file")) {
+                    throw new IllegalArgumentException(
+                            "unsupported classpath scheme: " + file.getProtocol());
+                }
+                Path jar = Path.of(file.toURI());
+                if (jars.add(jar)) readJar(jar, base, out);
+            }
+            case "file" -> {
+                try (var files = Files.list(Path.of(url.toURI()))) {
+                    for (Path p : files.toList()) {
+                        if (Files.isRegularFile(p)) {
+                            out.add(new Source(p.getFileName().toString(), Files.readAllBytes(p)));
+                        }
                     }
                 }
             }
-            return;
+            default ->
+                    throw new IllegalArgumentException(
+                            "unsupported classpath scheme: " + url.getProtocol());
         }
-        try (var files = Files.list(Path.of(url.toURI()))) {
-            for (Path p : files.toList()) {
-                if (Files.isRegularFile(p)) {
-                    out.add(new Source(p.getFileName().toString(), Files.readAllBytes(p)));
+    }
+
+    private static void readJar(Path path, String base, List<Source> out) throws IOException {
+        try (JarFile jar = new JarFile(path.toFile())) {
+            var entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry e = entries.nextElement();
+                String n = e.getName();
+                if (e.isDirectory() || !n.startsWith(base + "/")) continue;
+                String rest = n.substring(base.length() + 1);
+                if (rest.indexOf('/') >= 0) continue;
+                try (InputStream in = jar.getInputStream(e)) {
+                    out.add(new Source(rest, in.readAllBytes()));
                 }
             }
         }
+    }
+
+    private static Set<Path> jarRoots(ClassLoader loader) throws URISyntaxException {
+        Set<Path> roots = new LinkedHashSet<>();
+        for (ClassLoader cl = loader; cl != null; cl = cl.getParent()) {
+            if (cl instanceof URLClassLoader u) {
+                for (URL url : u.getURLs()) {
+                    if (url.getProtocol().equals("file")) roots.add(Path.of(url.toURI()));
+                }
+            }
+            if (cl == ClassLoader.getSystemClassLoader()) {
+                for (String entry :
+                        System.getProperty("java.class.path", "").split(File.pathSeparator)) {
+                    if (!entry.isEmpty()) roots.add(Path.of(entry).toAbsolutePath());
+                }
+            }
+        }
+        roots.removeIf(p -> !p.toString().endsWith(".jar") || !Files.isRegularFile(p));
+        return roots;
     }
 
     private record Row(long version, String checksum, boolean success) {}
@@ -229,7 +272,9 @@ public final class Migrations {
             String text = normalize(new String(src.bytes(), StandardCharsets.UTF_8));
             Script script = new Script(version, m.group(2), src.file(), text, checksum(text));
             Script clash = byVersion.putIfAbsent(version, script);
-            if (clash != null) {
+            if (clash != null
+                    && !(clash.name().equals(script.name())
+                            && clash.checksum().equals(script.checksum()))) {
                 throw new DbException(
                         "duplicate version "
                                 + version
