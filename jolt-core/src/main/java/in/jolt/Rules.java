@@ -27,11 +27,7 @@ public final class Rules {
         return value == null || value.isBlank() ? error(field, "must not be blank") : this;
     }
 
-    /**
-     * Inclusive bounds, compared exactly (as doubles only when all three are Double or Float).
-     *
-     * @throws IllegalArgumentException if {@code min} exceeds {@code max}
-     */
+    /** Inclusive bounds, compared exactly; throws IllegalArgumentException if min exceeds max. */
     public Rules range(String field, Number value, Number min, Number max) {
         if (compare(min, max) > 0) {
             throw new IllegalArgumentException("min " + min + " exceeds max " + max);

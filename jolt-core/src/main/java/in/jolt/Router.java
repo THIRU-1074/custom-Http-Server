@@ -100,9 +100,8 @@ public class Router {
     }
 
     /**
-     * Route-level middleware: {@code get|post|put|patch|delete(path, mw..., handler)} runs the
-     * middleware in order, then the handler. A middleware that does not call {@code next.run()}
-     * stops the chain. Typed handlers take one middleware; use {@link Middleware#then} for more.
+     * Route-level middleware, run in order before the handler; not calling {@code next.run()} stops
+     * the chain. Typed handlers take one; combine more with {@link Middleware#then}.
      */
     public Router get(String path, Middleware mw, Handler h) {
         return get(path, chain(h, mw));

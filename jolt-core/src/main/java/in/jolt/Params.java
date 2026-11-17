@@ -12,11 +12,9 @@ public interface Params {
     String query(String name);
 
     /**
-     * Path parameter as {@code type}: String, primitives and wrappers (int, long, short, byte,
-     * boolean, double, float), UUID, Instant, LocalDate or an enum (case-insensitive).
+     * Path parameter as String, a primitive or wrapper, UUID, Instant, LocalDate or enum.
      *
-     * @throws HttpException 400 naming the parameter if malformed, or absent for a primitive
-     * @throws IllegalArgumentException if {@code type} is unsupported
+     * @throws HttpException 400 if malformed, or absent for a primitive
      */
     default <T> T param(String name, Class<T> type) {
         return Values.convert("path", name, param(name), type, null);

@@ -7,13 +7,7 @@ public final class Validate {
 
     private Validate() {}
 
-    /**
-     * Wraps a typed write handler: runs {@code validator} on the bound body and calls {@code fn}
-     * only if it recorded no errors.
-     *
-     * @throws HttpException 400 if the body is null
-     * @throws ValidationException 422 with every field error
-     */
+    /** Validates the bound body, then calls {@code fn}; null body is 400, errors are 422. */
     public static <I, O> Typed.Write<I, O> with(Validator<I> validator, Typed.Write<I, O> fn) {
         return (params, body) -> {
             if (body == null) {
@@ -24,11 +18,7 @@ public final class Validate {
         };
     }
 
-    /**
-     * Runs {@code checks} and throws if it recorded any error.
-     *
-     * @throws ValidationException 422 with every field error
-     */
+    /** Runs {@code checks}; throws {@link ValidationException} if any error was recorded. */
     public static void check(Consumer<Rules> checks) {
         Rules rules = new Rules();
         checks.accept(rules);
