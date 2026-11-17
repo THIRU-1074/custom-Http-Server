@@ -60,7 +60,7 @@ Full API sheets: [llms.txt](llms.txt) (core) and [llms-extras.txt](llms-extras.t
 | Response | `json/text/html/send/sendFile/redirect`, cookies, ETag and cache headers, static files with Range, gzip, HTML templating, content negotiation and codecs, problem+json (opt-in) |
 | Security | Request limits, request-smuggling and header-injection rejection, path traversal protection, loopback bind by default, security headers, CORS, CSRF, signed sessions, rate limiting |
 | Auth (`jolt-auth`) | JWT, Basic, role checks, PBKDF2 `PasswordHasher`, refresh tokens with reuse detection |
-| Transport | HTTP/1.1 keep-alive and pipelining on virtual threads, TLS 1.2+, Expect: 100-continue, trusted-proxy headers, SSE and streaming, WebSocket |
+| Transport | HTTP/1.1 keep-alive and pipelining on virtual threads, TLS 1.2+, Expect: 100-continue, trusted-proxy headers, SSE (event ids, Last-Event-ID) and streaming, WebSocket, pub/sub `Hub` for both |
 | Observability | Request logger, request IDs, opt-in `/_jolt/health` and `/_jolt/metrics` (Prometheus text), route listing and OpenAPI |
 | Tooling | `JoltTest` in-memory client, `jolt-dev` restart runner, archetype, `JoltConfig.fromEnv()` |
 
