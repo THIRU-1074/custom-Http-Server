@@ -36,8 +36,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
     private volatile Metrics metrics;
-    private final List<Runnable> startHooks = new ArrayList<>();
-    private final List<Runnable> stopHooks = new ArrayList<>();
+    private final List<Server.Hook> hooks = new ArrayList<>();
     private boolean listening;
 
     App(JoltConfig config) {
@@ -209,52 +208,56 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     }
 
     /**
-     * Runs {@code hook} before each {@link #listen} accepts its first connection, in registration
-     * order. If a hook throws, {@code listen} closes what it opened, runs the stop hooks and throws
-     * {@link IllegalStateException}.
-     *
-     * @throws IllegalStateException if {@link #listen} was already called
+     * Runs {@code hook} before {@link #listen} binds the port, in order; a throw aborts {@code
+     * listen}. Register before {@code listen}, else {@code IllegalStateException}.
      */
-    public synchronized App onStart(Runnable hook) {
-        register(startHooks, hook);
-        return this;
+    public App onStart(Runnable hook) {
+        return register(hook, null);
     }
 
     /**
-     * Runs {@code hook} when a server of this app closes, in reverse registration order, after
-     * in-flight requests drained. A hook that throws is logged and the rest still run.
-     *
-     * @throws IllegalStateException if {@link #listen} was already called
+     * Runs {@code hook} on {@link Server#close()} after in-flight requests drained, in reverse
+     * registration order; a failure is logged and the rest still run.
      */
-    public synchronized App onStop(Runnable hook) {
-        register(stopHooks, hook);
-        return this;
+    public App onStop(Runnable hook) {
+        return register(null, hook);
     }
 
-    private void register(List<Runnable> hooks, Runnable hook) {
-        Objects.requireNonNull(hook, "hook");
+    /**
+     * Registers {@code start} and {@code stop} as a pair: if a later start hook fails, {@code stop}
+     * runs only when {@code start} completed.
+     */
+    public App lifecycle(Runnable start, Runnable stop) {
+        return register(
+                Objects.requireNonNull(start, "start"), Objects.requireNonNull(stop, "stop"));
+    }
+
+    private synchronized App register(Runnable start, Runnable stop) {
         if (listening) {
             throw new IllegalStateException("Lifecycle hooks must be registered before listen()");
         }
-        hooks.add(hook);
+        if (start == null && stop == null) {
+            throw new NullPointerException("hook");
+        }
+        hooks.add(new Server.Hook(start, stop));
+        return this;
     }
 
     /**
      * Starts serving on {@code port} (0 picks a free port) on {@link JoltConfig#bindAddress} and
      * returns immediately.
      */
-    public Server listen(int port) {
-        List<Runnable> start;
-        List<Runnable> stop;
-        synchronized (this) {
-            listening = true;
-            start = List.copyOf(startHooks);
-            stop = List.copyOf(stopHooks);
-        }
+    public synchronized Server listen(int port) {
+        listening = true;
+        boolean started = false;
         try {
-            return Server.start(config, port, this, start, stop);
+            Server server = Server.start(config, port, this, List.copyOf(hooks));
+            started = true;
+            return server;
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot listen on port " + port, e);
+        } finally {
+            listening = started;
         }
     }
 }

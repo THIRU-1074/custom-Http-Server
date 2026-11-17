@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,7 +38,7 @@ public final class Server implements AutoCloseable {
     private final Object closeLock = new Object();
     private volatile boolean closing;
     private boolean closed;
-    private final List<Runnable> stopHooks;
+    private final List<Hook> hooks;
     private Thread shutdownHook;
 
     private static ServerSocket bind(JoltConfig config, int port) throws IOException {
@@ -54,40 +55,65 @@ public final class Server implements AutoCloseable {
         return socket;
     }
 
+    /** A lifecycle entry; either side may be {@code null}. */
+    record Hook(Runnable start, Runnable stop) {}
+
     static Server start(
-            JoltConfig config,
-            int port,
-            ConnectionHandler.Dispatcher dispatcher,
-            List<Runnable> startHooks,
-            List<Runnable> stopHooks)
+            JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher, List<Hook> hooks)
             throws IOException {
-        ServerSocket socket = bind(config, port);
+        int done = 0;
         try {
-            for (Runnable hook : startHooks) {
-                hook.run();
+            for (; done < hooks.size(); done++) {
+                Runnable start = hooks.get(done).start();
+                if (start != null) {
+                    start.run();
+                }
             }
-        } catch (RuntimeException e) {
+        } catch (Throwable t) {
+            abort(null, hooks, done);
+            if (t instanceof Error e) {
+                throw e;
+            }
+            throw new IllegalStateException("onStart hook failed, listen aborted", t);
+        }
+        ServerSocket socket = null;
+        try {
+            socket = bind(config, port);
+            return new Server(config, socket, dispatcher, hooks);
+        } catch (Throwable t) {
+            abort(socket, hooks, done);
+            throw t;
+        }
+    }
+
+    private static void abort(ServerSocket socket, List<Hook> hooks, int started) {
+        if (socket != null) {
             try {
                 socket.close();
             } catch (IOException ignored) {
                 // closing after a failed start; the original failure is the one to report
             }
-            runStopHooks(stopHooks);
-            throw new IllegalStateException("onStart hook failed, listen aborted", e);
         }
-        return new Server(config, socket, dispatcher, stopHooks);
+        List<Runnable> stops = new ArrayList<>();
+        for (int i = 0; i < hooks.size(); i++) {
+            Hook h = hooks.get(i);
+            if (h.stop() != null && (h.start() == null || i < started)) {
+                stops.add(h.stop());
+            }
+        }
+        runStopHooks(stops);
     }
 
     Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {
-        this(config, serverSocket, dispatcher, List.of());
+        this(config, serverSocket, dispatcher, List.<Hook>of());
     }
 
     private Server(
             JoltConfig config,
             ServerSocket serverSocket,
             ConnectionHandler.Dispatcher dispatcher,
-            List<Runnable> stopHooks) {
-        this.stopHooks = stopHooks;
+            List<Hook> hooks) {
+        this.hooks = hooks;
         this.config = config;
         this.dispatcher = dispatcher;
         this.trusted = TrustedProxies.from(config);
@@ -105,7 +131,7 @@ public final class Server implements AutoCloseable {
     /** Closes this server from a JVM shutdown hook. Calling it again has no effect. */
     public synchronized Server closeOnShutdown() {
         if (shutdownHook == null && !closing) {
-            shutdownHook = new Thread(this::close, "jolt-shutdown");
+            shutdownHook = new Thread(this::shutdown, "jolt-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdownHook);
         }
         return this;
@@ -185,9 +211,15 @@ public final class Server implements AutoCloseable {
      */
     @Override
     public void close() {
+        if (shutdown() instanceof Error e) {
+            throw e;
+        }
+    }
+
+    private Error shutdown() {
         synchronized (closeLock) {
             if (closed) {
-                return;
+                return null;
             }
             closing = true;
             unregisterHook();
@@ -207,17 +239,28 @@ public final class Server implements AutoCloseable {
             } finally {
                 closed = true;
             }
-            runStopHooks(stopHooks);
+            List<Runnable> stops = new ArrayList<>();
+            for (Hook h : hooks) {
+                if (h.stop() != null) {
+                    stops.add(h.stop());
+                }
+            }
+            return runStopHooks(stops);
         }
     }
 
-    private static void runStopHooks(List<Runnable> hooks) {
-        for (int i = hooks.size() - 1; i >= 0; i--) {
+    private static Error runStopHooks(List<Runnable> stops) {
+        Error first = null;
+        for (int i = stops.size() - 1; i >= 0; i--) {
             try {
-                hooks.get(i).run();
-            } catch (Exception e) {
-                LOG.log(System.Logger.Level.WARNING, "onStop hook failed", e);
+                stops.get(i).run();
+            } catch (Throwable t) {
+                LOG.log(System.Logger.Level.WARNING, "onStop hook failed", t);
+                if (first == null && t instanceof Error e) {
+                    first = e;
+                }
             }
         }
+        return first;
     }
 }
