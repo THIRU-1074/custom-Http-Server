@@ -73,6 +73,7 @@ Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper
 ## Protocol and body
 Expect: 100-continue is answered before the body is read; declared length over maxBodyBytes gives 413 unread, other Expect values 417.
 JSON binds Instant, LocalDate, LocalDateTime, UUID, BigDecimal, enums (by name) and Optional (empty omitted); bad values give 400.
+req.parts() reads multipart/form-data in memory: Part name(), filename() (sanitised, null for fields), contentType(), bytes(), text(). Limits maxParts(10), maxPartBytes(1 MB), maxBodyBytes: 413; malformed 400; other types 415.
 
 ## Introspection
     app.routes()                          // List<Route(method, path, tool)>

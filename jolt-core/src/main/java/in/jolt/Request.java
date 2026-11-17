@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -24,6 +25,8 @@ public final class Request implements Params {
     private Map<String, String> cookies;
     private Map<String, String> form;
     private final String remoteAddress;
+    private JoltConfig config;
+    private List<Part> parts;
 
     public Request(
             String method,
@@ -110,6 +113,26 @@ public final class Request implements Params {
         return Collections.unmodifiableMap(form);
     }
 
+    /**
+     * Parts of a {@code multipart/form-data} body, in memory. Limits come from {@link
+     * JoltConfig#maxParts} and {@link JoltConfig#maxPartBytes}.
+     *
+     * @throws HttpException 415 for another content type, 413 over a limit, 400 if malformed
+     */
+    public List<Part> parts() {
+        String type = headers.getOrDefault("Content-Type", "");
+        int semi = type.indexOf(';');
+        String media = (semi < 0 ? type : type.substring(0, semi)).strip();
+        if (!media.equalsIgnoreCase("multipart/form-data")) {
+            throw new HttpException(
+                    HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Expected multipart/form-data");
+        }
+        if (parts == null) {
+            parts = Multipart.parse(type, body, config == null ? JoltConfig.defaults() : config);
+        }
+        return parts;
+    }
+
     private static Charset charset(String params) {
         for (String param : params.split(";")) {
             int eq = param.indexOf('=');
@@ -182,6 +205,10 @@ public final class Request implements Params {
     public Request attr(String name, Object value) {
         attributes.put(name, value);
         return this;
+    }
+
+    void config(JoltConfig config) {
+        this.config = config;
     }
 
     void params(Map<String, String> params) {

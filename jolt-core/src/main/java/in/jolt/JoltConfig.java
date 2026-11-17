@@ -19,7 +19,9 @@ public record JoltConfig(
         int maxHeaderCount,
         boolean secureCookies,
         long maxStaticFileBytes,
-        String bindAddress) {
+        String bindAddress,
+        int maxPartBytes,
+        int maxParts) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -34,7 +36,9 @@ public record JoltConfig(
                 100,
                 false,
                 10L * 1024 * 1024,
-                "127.0.0.1");
+                "127.0.0.1",
+                1024 * 1024,
+                10);
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -106,7 +110,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -122,7 +128,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -138,7 +146,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -154,7 +164,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -170,7 +182,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -186,7 +200,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -202,7 +218,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -218,7 +236,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -234,7 +254,9 @@ public record JoltConfig(
                 v,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -250,7 +272,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 v,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -266,7 +290,9 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 v,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts);
     }
 
     /**
@@ -286,6 +312,46 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
+                v,
+                maxPartBytes,
+                maxParts);
+    }
+
+    /** Largest accepted multipart part, in bytes. Defaults to 1 MB; larger parts get 413. */
+    public JoltConfig maxPartBytes(int v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                v,
+                maxParts);
+    }
+
+    /** Most parts accepted in one multipart body. Defaults to 10; more get 413. */
+    public JoltConfig maxParts(int v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
                 v);
     }
 }

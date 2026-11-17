@@ -39,6 +39,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      */
     @Override
     public void dispatch(Request req, Response res) throws Exception {
+        req.config(config);
         run(
                 req,
                 res,
