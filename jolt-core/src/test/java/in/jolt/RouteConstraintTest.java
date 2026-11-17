@@ -3,6 +3,7 @@ package in.jolt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import in.jolt.internal.routing.RouteTrie;
 import in.jolt.test.JoltTest;
@@ -97,5 +98,31 @@ class RouteConstraintTest {
     void optionalMustBeLast() {
         var trie = new RouteTrie<String>();
         assertThrows(IllegalArgumentException.class, () -> trie.insert("/a/:x?/b", "v"));
+    }
+
+    @Test
+    void optionalConflictsWithAnExistingBaseRoute() {
+        var trie = new RouteTrie<String>();
+        trie.insert("/files", "base");
+        var e =
+                assertThrows(
+                        IllegalArgumentException.class, () -> trie.insert("/files/:name?", "v"));
+        assertTrue(e.getMessage().contains("/files/:name?") && e.getMessage().contains("/files"));
+    }
+
+    @Test
+    void baseRouteConflictsWithAnExistingOptional() {
+        var trie = new RouteTrie<String>();
+        trie.insert("/files/:name?", "v");
+        var e = assertThrows(IllegalArgumentException.class, () -> trie.insert("/files", "base"));
+        assertTrue(e.getMessage().contains("/files/:name?") && e.getMessage().contains("/files"));
+    }
+
+    @Test
+    void reregisteringTheSameOptionalPatternStillWorks() {
+        var trie = new RouteTrie<String>();
+        trie.insert("/files/:name?", "a");
+        trie.insert("/files/:name?", "b");
+        assertEquals("b", trie.find("/files").value());
     }
 }

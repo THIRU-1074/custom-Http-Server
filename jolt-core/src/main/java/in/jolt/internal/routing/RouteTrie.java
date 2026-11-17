@@ -29,6 +29,8 @@ public final class RouteTrie<T> {
         String paramName;
         T wildcard;
         T value;
+        String valuePattern;
+        boolean valueOptional;
     }
 
     private final Node<T> root = new Node<>();
@@ -63,7 +65,7 @@ public final class RouteTrie<T> {
                             "Empty or duplicate path parameter ':" + name + "' in " + pattern);
                 }
                 if (optional) {
-                    node.value = value;
+                    assign(node, pattern, value, true);
                 }
                 node =
                         paren < 0
@@ -77,7 +79,19 @@ public final class RouteTrie<T> {
                 node = node.statics.computeIfAbsent(seg, k -> new Node<>());
             }
         }
+        assign(node, pattern, value, false);
+    }
+
+    private static <T> void assign(Node<T> node, String pattern, T value, boolean optional) {
+        if (node.value != null
+                && (optional || node.valueOptional)
+                && !pattern.equals(node.valuePattern)) {
+            throw new IllegalArgumentException(
+                    "Route " + pattern + " conflicts with " + node.valuePattern);
+        }
         node.value = value;
+        node.valuePattern = pattern;
+        node.valueOptional = optional;
     }
 
     private static boolean isOptional(String seg) {
