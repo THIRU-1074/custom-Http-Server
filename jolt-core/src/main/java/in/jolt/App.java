@@ -130,7 +130,7 @@ public final class App extends Router {
      * @deprecated request-aware mappers get a {@code null} request; use {@link #mapError(Throwable,
      *     Request)}
      */
-    @Deprecated(since = "0.5.0")
+    @Deprecated(since = "0.4.1")
     public Reply<?> mapError(Throwable t) {
         return mapError(t, null);
     }
