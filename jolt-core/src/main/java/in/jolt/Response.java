@@ -254,7 +254,7 @@ public final class Response {
                 status = 304;
                 return send(new byte[0], type);
             }
-            long[] range = range(size);
+            long[] range = range(size, tag, modified);
             if (range != null && range.length == 0) {
                 validators(tag, modified);
                 status = 416;
@@ -345,11 +345,28 @@ public final class Response {
         header("Accept-Ranges", "bytes");
     }
 
-    private long[] range(long size) {
+    private boolean ifRangeHolds(String tag, Instant modified) {
+        String v = req.header("If-Range");
+        if (v == null) {
+            return true;
+        }
+        v = v.strip();
+        if (v.startsWith("\"") || v.startsWith("W/")) {
+            return v.equals(tag);
+        }
+        try {
+            Instant t = DateTimeFormatter.RFC_1123_DATE_TIME.parse(v, Instant::from);
+            return !modified.truncatedTo(ChronoUnit.SECONDS).isAfter(t);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private long[] range(long size, String tag, Instant modified) {
         String spec = req == null ? null : req.header("Range");
         if (spec == null
                 || status != 200
-                || req.header("If-Range") != null
+                || !ifRangeHolds(tag, modified)
                 || !(req.method().equals("GET") || req.method().equals("HEAD"))
                 || !spec.regionMatches(true, 0, "bytes=", 0, 6)
                 || spec.indexOf(',') >= 0) {

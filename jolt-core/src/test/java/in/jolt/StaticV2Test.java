@@ -119,6 +119,43 @@ class StaticV2Test {
     }
 
     @Test
+    void matchingIfRangeServesThePartAndStaleOnesTheWhole(@TempDir Path root) throws IOException {
+        Path f = root.resolve("d.txt");
+        Files.writeString(f, "0123456789");
+        Files.setLastModifiedTime(
+                f, java.nio.file.attribute.FileTime.fromMillis(1_700_000_000_000L));
+        var t = client(root);
+        var first = t.get("/s/d.txt").expect(200);
+        String tag = first.header("ETag");
+        String modified = first.header("Last-Modified");
+        t.get("/s/d.txt")
+                .header("Range", "bytes=0-1")
+                .header("If-Range", tag)
+                .expect(206)
+                .body("01");
+        t.get("/s/d.txt")
+                .header("Range", "bytes=0-1")
+                .header("If-Range", modified)
+                .expect(206)
+                .body("01");
+        t.get("/s/d.txt")
+                .header("Range", "bytes=0-1")
+                .header("If-Range", "Wed, 15 Nov 2023 00:00:00 GMT")
+                .expect(206);
+        t.get("/s/d.txt")
+                .header("Range", "bytes=0-1")
+                .header("If-Range", "W/\"stale\"")
+                .expect(200)
+                .body("0123456789");
+        t.get("/s/d.txt")
+                .header("Range", "bytes=0-1")
+                .header("If-Range", "Tue, 14 Nov 2023 22:13:19 GMT")
+                .expect(200)
+                .body("0123456789");
+        t.get("/s/d.txt").header("Range", "bytes=0-1").header("If-Range", "not a date").expect(200);
+    }
+
+    @Test
     void unsatisfiableRangesGive416(@TempDir Path root) throws IOException {
         Files.writeString(root.resolve("d.txt"), "0123456789");
         var t = client(root);
