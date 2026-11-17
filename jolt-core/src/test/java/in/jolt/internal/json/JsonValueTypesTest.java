@@ -47,8 +47,10 @@ class JsonValueTypesTest {
                 note);
     }
 
+    private static final BuiltInJsonMapper MAPPER = new BuiltInJsonMapper();
+
     private static <T> T read(String json, Class<T> type) {
-        return Json.bind(Json.parse(json), type);
+        return MAPPER.read(json.getBytes(java.nio.charset.StandardCharsets.UTF_8), type);
     }
 
     @Test
@@ -107,8 +109,59 @@ class JsonValueTypesTest {
         record Money(BigDecimal v) {}
         String digits = "12345678901234567890.123456789";
         assertEquals(new BigDecimal(digits), read("{\"v\":" + digits + "}", Money.class).v());
-        assertEquals(new BigDecimal("1000.0"), read("{\"v\":1e3}", Money.class).v());
-        assertEquals(0, new BigDecimal("-0.10").compareTo(read("{\"v\":-0.10}", Money.class).v()));
+        assertEquals(new BigDecimal("1e3"), read("{\"v\":1e3}", Money.class).v());
+        assertEquals(new BigDecimal("-0.10"), read("{\"v\":-0.10}", Money.class).v());
+        assertEquals(new BigDecimal("10.00"), read("{\"v\":10.00}", Money.class).v());
+    }
+
+    @Test
+    void untypedDecimalsStayDouble() {
+        record Loose(Object o, Map<String, Object> m, List<Object> l, Map raw) {}
+        String n = "12.3456789012345678";
+        Loose x =
+                read(
+                        "{\"o\":"
+                                + n
+                                + ",\"m\":{\"k\":"
+                                + n
+                                + "},\"l\":["
+                                + n
+                                + "],\"raw\":{\"k\":"
+                                + n
+                                + "}}",
+                        Loose.class);
+        double d = 12.3456789012345678;
+        assertEquals(d, x.o());
+        assertEquals(d, x.m().get("k"));
+        assertEquals(d, x.l().get(0));
+        assertEquals(d, x.raw().get("k"));
+        assertEquals(d, read(n, Object.class));
+        assertEquals(Map.of("k", d), read("{\"k\":" + n + "}", Map.class));
+        assertEquals(1.5, read("[1.5]", List.class).get(0));
+    }
+
+    @Test
+    void hugeExponentsAreRejectedForExactTypesOnly() {
+        record Money(BigDecimal v) {}
+        record Whole(java.math.BigInteger v) {}
+        record Small(int v) {}
+        for (String bad :
+                new String[] {"1234567890123456e999999999", "1e401", "1e-401", "1E+99999"}) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> read("{\"v\":" + bad + "}", Money.class),
+                    bad);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> read("{\"v\":" + bad + "}", Whole.class),
+                    bad);
+        }
+        assertThrows(
+                IllegalArgumentException.class, () -> read("{\"v\":1e999999999}", Small.class));
+        assertEquals(new BigDecimal("1e400"), read("{\"v\":1e400}", Money.class).v());
+        assertEquals(new BigDecimal("1e-400"), read("{\"v\":1e-400}", Money.class).v());
+        assertEquals(java.math.BigInteger.TEN.pow(400), read("{\"v\":1e400}", Whole.class).v());
+        assertEquals(Double.POSITIVE_INFINITY, read("1e999999999", Double.class));
     }
 
     @Test

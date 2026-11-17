@@ -31,20 +31,73 @@ public final class Json {
     private static final Pattern NUMBER =
             Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int MAX_DEPTH = 64;
-    private static final int MAX_DOUBLE_DIGITS = 15;
+    private static final int MAX_EXPONENT = 400;
     private static final int UUID_LENGTH = 36;
     private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
 
+    /**
+     * A fractional or exponent number that keeps its text for exact BigDecimal/BigInteger targets.
+     */
+    private static final class Decimal extends Number {
+        private final String text;
+        private final double value;
+
+        Decimal(String text, double value) {
+            this.text = text;
+            this.value = value;
+        }
+
+        @Override
+        public int intValue() {
+            return (int) value;
+        }
+
+        @Override
+        public long longValue() {
+            return (long) value;
+        }
+
+        @Override
+        public float floatValue() {
+            return (float) value;
+        }
+
+        @Override
+        public double doubleValue() {
+            return value;
+        }
+
+        @Override
+        public String toString() {
+            return text;
+        }
+    }
+
     private final String src;
+    private final boolean exact;
     private int pos;
     private int depth;
 
-    private Json(String src) {
+    private Json(String src, boolean exact) {
         this.src = src;
+        this.exact = exact;
     }
 
     public static Object parse(String text) {
-        Json p = new Json(text);
+        return parse(text, false);
+    }
+
+    /**
+     * Parses {@code text} and binds it to {@code type}. Unlike {@link #parse}, decimal text is kept
+     * for {@code BigDecimal} and {@code BigInteger} targets; every other target sees {@code Double}
+     * as usual.
+     */
+    public static <T> T read(String text, Class<T> type) {
+        return bind(parse(text, true), type);
+    }
+
+    private static Object parse(String text, boolean exact) {
+        Json p = new Json(text, exact);
         p.skipWs();
         Object v = p.value();
         p.skipWs();
@@ -227,23 +280,12 @@ public final class Json {
                 BigInteger big = new BigInteger(s);
                 return big.bitLength() < 64 ? (Object) big.longValue() : big;
             }
-            return mantissaDigits(s) > MAX_DOUBLE_DIGITS
-                    ? new BigDecimal(s)
-                    : Double.parseDouble(s);
+            double d = Double.parseDouble(s);
+            return exact ? new Decimal(s, d) : (Object) d;
         } catch (NumberFormatException e) {
             pos = start;
             throw error();
         }
-    }
-
-    private static int mantissaDigits(String s) {
-        int digits = 0;
-        for (int i = 0; i < s.length() && s.charAt(i) != 'e' && s.charAt(i) != 'E'; i++) {
-            if (s.charAt(i) >= '0' && s.charAt(i) <= '9') {
-                digits++;
-            }
-        }
-        return digits;
     }
 
     private static void write(Object v, StringBuilder sb, int depth) {
@@ -371,11 +413,14 @@ public final class Json {
                             : Object.class;
             return Optional.ofNullable(convert(v, element, where));
         }
+        if (v instanceof Decimal d && raw != BigDecimal.class && raw != BigInteger.class) {
+            v = d.doubleValue();
+        }
         if (v == null) {
             return raw.isPrimitive() ? Array.get(Array.newInstance(raw, 1), 0) : null;
         }
         if (raw == Object.class) {
-            return v;
+            return plain(v);
         }
         if (raw == String.class) {
             if (v instanceof Map || v instanceof List) {
@@ -442,7 +487,7 @@ public final class Json {
             }
         }
         if (raw.isInstance(v)) {
-            return v;
+            return plain(v);
         }
         throw mismatch(where, raw.getSimpleName());
     }
@@ -465,6 +510,18 @@ public final class Json {
             // reported below
         }
         throw mismatch(where, "a valid " + raw.getSimpleName());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object plain(Object v) {
+        if (v instanceof Map<?, ?> m) {
+            ((Map<String, Object>) m).replaceAll((k, x) -> plain(x));
+        } else if (v instanceof List<?> l) {
+            ((List<Object>) l).replaceAll(Json::plain);
+        } else if (v instanceof Decimal d) {
+            return d.doubleValue();
+        }
+        return v;
     }
 
     private static Collection<Object> newCollection(Class<?> raw) {
@@ -524,6 +581,12 @@ public final class Json {
         } else if (target == Float.class) {
             return n.floatValue();
         }
+        if (n instanceof Double d && !Double.isFinite(d)) {
+            throw mismatch(where, "a finite number");
+        }
+        if ((target == BigDecimal.class || target == BigInteger.class) && n instanceof Decimal) {
+            checkExponent(n.toString(), where);
+        }
         BigDecimal exact = new BigDecimal(n.toString());
         try {
             if (target == Integer.class) {
@@ -541,6 +604,18 @@ public final class Json {
             throw mismatch(where, "an integer in range for " + target.getSimpleName());
         }
         return target == BigDecimal.class ? exact : n;
+    }
+
+    private static void checkExponent(String text, String where) {
+        int e = Math.max(text.indexOf('e'), text.indexOf('E'));
+        if (e < 0) {
+            return;
+        }
+        String digits = text.substring(e + 1).replace("+", "").replace("-", "");
+        if (digits.length() > 4 || Integer.parseInt(digits) > MAX_EXPONENT) {
+            throw new IllegalArgumentException(
+                    "Exponent out of range (max " + MAX_EXPONENT + ") for " + where);
+        }
     }
 
     private static Class<?> wrap(Class<?> c) {
