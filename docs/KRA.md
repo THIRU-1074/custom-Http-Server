@@ -1,4 +1,8 @@
-# Jolt v0.1.0: Key Result Areas
+# Jolt: Key Result Areas
+
+This file has two parts: the v0.1.0 baseline and review (below), and the [v0.3.1 outcomes](#v031-outcomes) that closed it.
+
+## v0.1.0 baseline
 
 Baseline: tag `v0.1.0` (commit `e4361a2`), built 14 Jun – 21 Jul 2025.
 Scope: a from-scratch HTTP/1.1 server and Express-style framework in Java, using only `java.net.ServerSocket` (no servlet container and no Netty).
@@ -107,3 +111,69 @@ These were found by reviewing the baseline. They define the v1 roadmap. Location
 - API design modelled on Express.
 - Performance testing with Postman.
 - Debugging protocol-level issues (header casing, binary bodies).
+
+---
+
+## v0.3.1 outcomes
+
+v0.1.0 was a raw `ServerSocket` server with 15 documented limitations. The code was then rewritten as a multi-module Java 21 library (`jolt-core` with no dependencies, plus `jolt-auth`, `jolt-mcp`, `jolt-db`, `jolt-dev`, `jolt-archetype`, examples and `jolt-starter`). It is published through JitPack as `com.github.THIRU-1074.custom-Http-Server:<module>:v0.3.1`. `v0.2.0` also exists. The v0.3.0 tag failed to build and has no artifacts.
+
+### L1-L15 closed
+
+The rewrite landed through merged branches before PR numbering started, so fixes are cited by commit. All 15 are closed in the current code. Checked by reading the history and the source.
+
+| ID | Closed by | How |
+|---|---|---|
+| L1 sleep-polling | `fb9ce2e` | Blocking reads on a virtual thread per connection; the only `Thread.sleep` left in library code is the accept-error backoff in `Server` |
+| L2 unbounded threads | `fb9ce2e`, `b73f2ce` | `Semaphore(maxConnections)`; extra connections get 503; flood-and-recover test |
+| L3 unsynchronized queue | `fb9ce2e` | No response queue: one thread owns a connection and handles requests in order, so pipelined responses stay ordered |
+| L4 first handler only | `c96f138` | `Router` runs the middleware chain with `next` |
+| L5 PUT registration | `c96f138`, `3924f70` | PUT uses the same registration as every method; regression test |
+| L6 hung connection on exception | `fb9ce2e`, `0ef4eda`, `3924f70` | Exceptions become a 500 (or the `HttpException` status); middleware headers are kept; tested over a socket |
+| L7 truncated bodies | `25ecea8`, `87f750b` | `HttpParser` reads exactly `Content-Length` bytes or a chunked body, in chunks |
+| L8 cookies | `a490bc2`, `3924f70`, `5d5f63f` | Reads `Cookie` (duplicates joined with `; `), one `Set-Cookie` per cookie, names and attributes validated |
+| L9 router order, DELETE/PATCH | `b5eba41`, `c96f138` | `RouteTrie` (static, then `:param`, then `*`), longest-prefix mounting, DELETE and PATCH supported |
+| L10 secrets and plaintext passwords | `1b563fc`, `898c128` (PR #2), `40faa7e`, `e90efbc` | No default JWT secret, 32-byte minimum; example passwords hashed with PBKDF2 and admin seeded from env; DB and build output untracked |
+| L11 no limits | `381f15c`, `fd0855b`, `52f960c`, `b0c3968` | Request line, header, body and connection limits, read and keep-alive timeouts, smuggling and bare CR/LF rejection, bounded chunk trailers |
+| L12 secrets in logs | `06c8f09`, `d3f0e2f` | `System.Logger` only, logged fields sanitized, `Logger.requests()` logs no query, headers or bodies; no `System.out` in `jolt-core`, `jolt-auth`, `jolt-mcp` or `jolt-db` (the `jolt-dev` runner prints its restart notice) |
+| L13 uploads and wildcard CORS | `aa76f5b`, `08a77f5`, `e72cbaf` | No fixed upload path (multipart is read in memory); `sendFile` and `Static` confined to a root; CORS is opt-in with an exact origin |
+| L14 not importable | `1403bcc`, `2fee3d0`, `e908fda`, `e90efbc` | Maven multi-module build, no static route tables, v0.1 sources removed, demos moved to `examples/` |
+| L15 no tests | `3924f70`, `53c0a7b`, `5a48c9f`, `c2595e2`, `94883d8` | In-memory `JoltTest`, loopback protocol tests, edge tables, example smoke tests |
+
+### The 30 feature issues
+
+29 of 30 are implemented and closed. Each PR was reviewed on its branch and findings were fixed before merging.
+
+| PR | Issues |
+|---|---|
+| [#40](https://github.com/THIRU-1074/custom-Http-Server/pull/40) | #24 security headers, #27 roles, #28 `PasswordHasher`, #32 `JoltTest` v2 |
+| [#41](https://github.com/THIRU-1074/custom-Http-Server/pull/41) | #13 typed params, #20 route middleware, #22 validation, #23 problem+json |
+| [#42](https://github.com/THIRU-1074/custom-Http-Server/pull/42) | #7 Expect: 100-continue, #9 trusted proxy, #12 multipart, #14 JSON time, UUID, enum, Optional |
+| [#43](https://github.com/THIRU-1074/custom-Http-Server/pull/43) | #15 gzip, #16 ETag and cache, #17 static v2, #18 negotiation and codecs, #19 templating |
+| [#44](https://github.com/THIRU-1074/custom-Http-Server/pull/44) | #33 dev mode, #34 archetype, #35 `jolt-db`; plus release preparation |
+| [#45](https://github.com/THIRU-1074/custom-Http-Server/pull/45) | #21 route constraints, #25 CSRF, #26 signed sessions, #29 refresh tokens, #31 request IDs |
+| [#46](https://github.com/THIRU-1074/custom-Http-Server/pull/46) | #8 TLS, #10 SSE and streaming, #11 WebSocket, #30 health and metrics |
+
+Supporting PRs: #3 Express parity, #4 SOLID support, #2 cleanup and hardening, #5 benchmarks, #6 starter, #37-#39 guards and the `llms.txt` budget, #47-#48 release and JitPack build fixes. Public API growth is justified in ADRs 0001-0011 (two files share the number 0002).
+
+### Measured results
+
+Tests at the final main: `jolt-core` 783, `jolt-auth` 47, `jolt-mcp` 9, `jolt-db` 14, `jolt-dev` 15, examples 9, 1 and 25. JaCoCo gates `jolt-core` at 80% line coverage (about 96% measured earlier). CI on JDK 21 and Linux runs `verify` and `token-guard`.
+
+| Measure | Result |
+|---|---|
+| Token cost of a todos API (auth, validation, one test), tiktoken `cl100k_base` | Express 789, Jolt 1017, Javalin 1172, Spring Boot 1320. Jolt is about 23% below Spring Boot and 13% below Javalin; Express is smaller |
+| Jolt todo app (source plus pom, no tests) | 697 tokens, unchanged after 29 features (token-guard baseline, +0.0%) |
+| `llms.txt` / `llms-extras.txt` | 2054 tokens (limit 2100) / 1647 tokens (limit 3200) |
+| Throughput, authenticated `GET /todos`, 50 clients, 20 s x 3 runs after warmup | v0.2.0 median 22,337 req/s (21.2k to 22.6k); current main 22,561 and 21,887. No regression within noise |
+
+Throughput came from one idle Windows machine (AMD Ryzen 5 5625U, JDK 24) and is indicative only. The v0.1.0 Postman figure (27.45 req/s, 295 ms, 50 VU) used a different tool and is not comparable. In the earlier cross-framework run Jolt, Spring Boot and Javalin were statistically tied and Express was about 5x lower. Details: [benchmarks/RESULTS.md](../benchmarks/RESULTS.md).
+
+### Still open
+
+- **Maven Central (#36):** needs the owner's namespace verification, Central account and GPG key. The deploy and signing steps have not been run ([RELEASING.md](RELEASING.md)).
+- Linux and macOS performance is not measured.
+- The Autobahn WebSocket conformance suite has not been run.
+- TLS with client certificates is untested.
+- `JoltTest` cannot stream or upgrade to WebSocket.
+- MCP was checked with MCP Inspector 1.0.5 only.
