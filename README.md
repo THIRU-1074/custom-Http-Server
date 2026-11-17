@@ -36,7 +36,7 @@ Optional modules use the same group and version:
 | Module | Adds |
 |---|---|
 | `jolt-auth` | JWT (HS256), Basic auth, roles, `PasswordHasher`, refresh tokens. Uses `java-jwt`. |
-| `jolt-mcp` | Routes tagged with `.tool(...)` become MCP tools |
+| `jolt-mcp` | Routes tagged with `.tool(...)` become MCP tools; typed routes publish their record as the input schema |
 | `jolt-db` | Small bounded JDBC pool with parameterized queries |
 | `jolt-dev` | Dev-only restart runner and error page |
 | `jolt-archetype` | `mvn archetype:generate` scaffold (see `llms-extras.txt`) |
