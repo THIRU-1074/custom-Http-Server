@@ -99,6 +99,31 @@ class RolesTest {
     }
 
     @Test
+    void delimitedStringsAndBlankElementsAreHandled() {
+        var t = client();
+        t.get("/admin/x").header("Authorization", token(Map.of("roles", "user, root"))).expect(200);
+        t.get("/admin/x").header("Authorization", token(Map.of("role", "user admin"))).expect(200);
+        t.get("/admin/x")
+                .header("Authorization", token(Map.of("roles", List.of("user", " ", ""))))
+                .expect(403);
+    }
+
+    @Test
+    void nullElementIsNotTheRoleNull() {
+        var app = Jolt.create();
+        app.use(
+                (req, res, next) -> {
+                    var roles = new java.util.ArrayList<String>();
+                    roles.add(null);
+                    req.attr("user", "u").attr("claims", Map.of("roles", roles));
+                    next.run();
+                });
+        app.use(Auth.requireRole("null"));
+        app.get("/", (req, res) -> res.text("in"));
+        JoltTest.of(app).get("/").expect(403);
+    }
+
+    @Test
     void emptyRoleListIsRefused() {
         assertThrows(IllegalArgumentException.class, Auth::requireRole);
         assertThrows(IllegalArgumentException.class, Auth::requireAll);

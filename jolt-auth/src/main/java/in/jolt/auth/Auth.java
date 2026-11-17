@@ -2,7 +2,6 @@ package in.jolt.auth;
 
 import in.jolt.Middleware;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -51,13 +50,21 @@ public final class Auth {
     private static Set<String> rolesOf(Object claims) {
         Set<String> out = new HashSet<>();
         if (claims instanceof Map<?, ?> m) {
-            if (m.get("role") instanceof String s) {
-                out.add(s);
-            }
-            if (m.get("roles") instanceof List<?> l) {
-                l.forEach(o -> out.add(String.valueOf(o)));
-            }
+            add(out, m.get("role"));
+            add(out, m.get("roles"));
         }
         return out;
+    }
+
+    private static void add(Set<String> out, Object value) {
+        if (value instanceof String s) {
+            for (String part : s.split("[\\s,]+")) {
+                if (!part.isBlank()) {
+                    out.add(part);
+                }
+            }
+        } else if (value instanceof Iterable<?> items) {
+            items.forEach(o -> add(out, o));
+        }
     }
 }
