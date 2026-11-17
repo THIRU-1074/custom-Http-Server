@@ -2,7 +2,6 @@ package in.jolt;
 
 import in.jolt.internal.http.Codec;
 import in.jolt.internal.http.Values;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -55,7 +54,7 @@ public record Page(int page, int size) {
 
         /** Sets a {@code Link} header (first, prev, next, last) keeping the other query params. */
         public Result<T> link(Request req, Response res) {
-            String base = encode(req.path(), true) + "?" + otherParams(req.rawQuery());
+            String base = Codec.percentEncode(req.path(), true) + "?" + otherParams(req.rawQuery());
             long last = Math.max(totalPages, 1);
             StringBuilder sb = new StringBuilder();
             rel(sb, base, 1, "first");
@@ -109,34 +108,11 @@ public record Page(int page, int size) {
             if (k.isEmpty() || k.equals("page") || k.equals("size")) {
                 continue;
             }
-            sb.append(encode(k, false));
+            sb.append(Codec.percentEncode(k, false));
             if (v != null) {
-                sb.append('=').append(encode(v, false));
+                sb.append('=').append(Codec.percentEncode(v, false));
             }
             sb.append('&');
-        }
-        return sb.toString();
-    }
-
-    private static String encode(String s, boolean path) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : s.getBytes(StandardCharsets.UTF_8)) {
-            char c = (char) (b & 0xFF);
-            boolean plain =
-                    (c >= 'a' && c <= 'z')
-                            || (c >= 'A' && c <= 'Z')
-                            || (c >= '0' && c <= '9')
-                            || c == '-'
-                            || c == '.'
-                            || c == '_'
-                            || c == '~'
-                            || (path && c == '/');
-            if (plain) {
-                sb.append(c);
-            } else {
-                sb.append('%').append(Character.toUpperCase(Character.forDigit(b >> 4 & 0xF, 16)));
-                sb.append(Character.toUpperCase(Character.forDigit(b & 0xF, 16)));
-            }
         }
         return sb.toString();
     }
