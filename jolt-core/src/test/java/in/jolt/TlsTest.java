@@ -137,6 +137,43 @@ class TlsTest {
     }
 
     @Test
+    void onlyForwardSecretAeadSuitesStayEnabled() throws Exception {
+        try (javax.net.ssl.SSLServerSocket s =
+                (javax.net.ssl.SSLServerSocket)
+                        in.jolt.internal.http.Tls.context(keystore, PASSWORD)
+                                .getServerSocketFactory()
+                                .createServerSocket()) {
+            s.setEnabledCipherSuites(s.getSupportedCipherSuites());
+            in.jolt.internal.http.Tls.harden(s);
+            String[] suites = s.getEnabledCipherSuites();
+            assertTrue(suites.length > 0);
+            for (String c : suites) {
+                assertTrue(
+                        c.startsWith("TLS_AES_")
+                                || c.startsWith("TLS_CHACHA20_")
+                                || (c.startsWith("TLS_ECDHE_") || c.startsWith("TLS_DHE_"))
+                                        && (c.contains("_GCM_") || c.contains("CHACHA20")),
+                        c);
+                assertTrue(!c.startsWith("TLS_RSA_"), c);
+            }
+        }
+    }
+
+    @Test
+    void suiteFilterKeepsOnlyForwardSecretAead() {
+        assertTrue(in.jolt.internal.http.Tls.isAllowed("TLS_AES_256_GCM_SHA384"));
+        assertTrue(in.jolt.internal.http.Tls.isAllowed("TLS_CHACHA20_POLY1305_SHA256"));
+        assertTrue(in.jolt.internal.http.Tls.isAllowed("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"));
+        assertTrue(
+                in.jolt.internal.http.Tls.isAllowed(
+                        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"));
+        assertTrue(in.jolt.internal.http.Tls.isAllowed("TLS_DHE_RSA_WITH_AES_256_GCM_SHA384"));
+        assertTrue(!in.jolt.internal.http.Tls.isAllowed("TLS_RSA_WITH_AES_128_GCM_SHA256"));
+        assertTrue(!in.jolt.internal.http.Tls.isAllowed("TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256"));
+        assertTrue(!in.jolt.internal.http.Tls.isAllowed("TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"));
+    }
+
+    @Test
     void plainHttpStaysTheDefault() throws Exception {
         App app = Jolt.create();
         app.get("/scheme", (req, res) -> res.text(req.scheme()));

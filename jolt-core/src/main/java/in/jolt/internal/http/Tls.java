@@ -34,7 +34,7 @@ public final class Tls {
         }
     }
 
-    /** Limits a listening socket to TLS 1.2 and 1.3 and to AEAD (GCM or ChaCha20) suites. */
+    /** Limits a listening socket to TLS 1.2 and 1.3 and to the suites {@link #isAllowed}. */
     public static void harden(SSLServerSocket socket) {
         socket.setEnabledProtocols(
                 Arrays.stream(socket.getSupportedProtocols())
@@ -42,7 +42,16 @@ public final class Tls {
                         .toArray(String[]::new));
         socket.setEnabledCipherSuites(
                 Arrays.stream(socket.getEnabledCipherSuites())
-                        .filter(c -> c.contains("_GCM_") || c.contains("CHACHA20"))
+                        .filter(Tls::isAllowed)
                         .toArray(String[]::new));
+    }
+
+    /** TLS 1.3 suites, and TLS 1.2 suites with forward secrecy and an AEAD cipher. */
+    public static boolean isAllowed(String suite) {
+        if (suite.startsWith("TLS_AES_") || suite.startsWith("TLS_CHACHA20_")) {
+            return true;
+        }
+        boolean forwardSecret = suite.startsWith("TLS_ECDHE_") || suite.startsWith("TLS_DHE_");
+        return forwardSecret && (suite.contains("_GCM_") || suite.contains("CHACHA20"));
     }
 }
