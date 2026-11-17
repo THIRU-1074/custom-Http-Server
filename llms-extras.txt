@@ -1,0 +1,19 @@
+# Jolt extras
+
+Optional and advanced features. The core API is in llms.txt. One compact line per feature, grouped by area.
+
+## Protocol
+
+## Response
+
+## Routing
+
+## Security
+
+## Auth
+
+## Observability
+
+## Dev and tooling
+
+## Modules
