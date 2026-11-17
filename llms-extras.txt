@@ -20,6 +20,8 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
 
 ## Routing
 Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the next route, then 404), /files/:name? (optional last param). Order: static, constrained, plain, wildcard. Bad regex, duplicate names or /files/:name? next to /files: IllegalArgumentException at registration.
+Page p=Page.of(req|params) reads ?page (1) &size (20, capped 100; of(req,def,max)); bad or <1 is 400; p.offset() p.limit(); p.result(items,total) is JSON {items,page,size,total,totalPages}; .link(req,res) sets Link first/prev/next/last keeping other query params.
+Nested rules: r.nested("customer", b.customer(), (c, cr) -> cr.notBlank("email", c.email())) keys customer.email; r.each("seats", b.seats(), SEAT) runs a Validator per element, keys seats[2].row; they nest (order.items[1].sku); null value or element is "is required"; all in one 422.
 
 ## Request
 req.queryAll("genre") returns every value in order (empty list if absent); queryAll("id", Long.class) converts like query(name, Class), 400 naming the parameter; query(name) stays the first value; also on Params.

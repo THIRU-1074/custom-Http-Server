@@ -15,11 +15,46 @@ import java.util.regex.Pattern;
  */
 public final class Rules {
 
-    private final Map<String, String> errors = new LinkedHashMap<>();
+    private final Map<String, String> errors;
+    private final String prefix;
+
+    public Rules() {
+        this(new LinkedHashMap<>(), "");
+    }
+
+    private Rules(Map<String, String> errors, String prefix) {
+        this.errors = errors;
+        this.prefix = prefix;
+    }
 
     /** Records {@code message} for {@code field} unless it already has one. */
     public Rules error(String field, String message) {
-        errors.putIfAbsent(field, message);
+        errors.putIfAbsent(prefix.isEmpty() ? field : prefix + field, message);
+        return this;
+    }
+
+    /**
+     * Runs {@code validator} on each element with keys like {@code seats[2].row}; a null collection
+     * or element is "is required".
+     */
+    public <T> Rules each(
+            String field, Collection<? extends T> items, Validator<? super T> validator) {
+        if (items == null) {
+            return required(field);
+        }
+        int i = 0;
+        for (T item : items) {
+            nested(field + "[" + i++ + "]", item, validator);
+        }
+        return this;
+    }
+
+    /** Runs {@code validator} on {@code value} with keys like {@code customer.email}. */
+    public <T> Rules nested(String field, T value, Validator<? super T> validator) {
+        if (value == null) {
+            return required(field);
+        }
+        validator.validate(value, new Rules(errors, prefix + field + "."));
         return this;
     }
 
@@ -74,7 +109,7 @@ public final class Rules {
         return error(field, sb.toString());
     }
 
-    /** Errors so far, in the order first recorded; read-only. */
+    /** Errors so far at every level, by full key, in the order first recorded; read-only. */
     public Map<String, String> errors() {
         return Collections.unmodifiableMap(errors);
     }
