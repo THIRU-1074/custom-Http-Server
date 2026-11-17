@@ -1,6 +1,8 @@
 package in.jolt.dev;
 
 import java.io.IOException;
+import java.nio.file.ClosedWatchServiceException;
+import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,13 +25,21 @@ public final class Dev {
 
     static final long DEBOUNCE_MILLIS = 150;
     private static final String PREFIX = "[jolt-dev] ";
+    private static final System.Logger LOG = System.getLogger(Dev.class.getName());
+
+    @FunctionalInterface
+    interface Launcher {
+        Process launch(ProcessBuilder pb) throws IOException;
+    }
 
     private Dev() {}
 
     /**
      * Runs {@code mainClass} in a child JVM and restarts it on changes under {@code watchDirs}
-     * (recursively). Blocks until the calling thread is interrupted. The child sees {@code
-     * JOLT_DEV=1}.
+     * (recursively); directories that do not exist yet are skipped with a warning. Blocks until the
+     * calling thread is interrupted. The child sees {@code JOLT_DEV=1} and this JVM's classpath, or
+     * the one in system property {@code jolt.dev.classpath}. Start it with a plain {@code java -cp}
+     * or {@code mvn exec:exec}; {@code mvn exec:java} is rejected.
      */
     public static void run(String mainClass, Path... watchDirs) {
         try (Session session = start(mainClass, List.of(), watchDirs)) {
@@ -41,7 +51,23 @@ public final class Dev {
 
     /** Starts the child and the watcher without blocking. Close the session to stop both. */
     public static Session start(String mainClass, List<String> jvmArgs, Path... watchDirs) {
-        return new Session(mainClass, jvmArgs, watchDirs);
+        return start(mainClass, jvmArgs, ProcessBuilder::start, watchDirs);
+    }
+
+    static Session start(
+            String mainClass, List<String> jvmArgs, Launcher launcher, Path... watchDirs) {
+        return new Session(mainClass, jvmArgs, launcher, watchDirs);
+    }
+
+    static String classpath(String javaClassPath, String override) {
+        if (override != null && !override.isBlank()) return override;
+        if (javaClassPath.contains("plexus-classworlds")) {
+            throw new IllegalStateException(
+                    "mvn exec:java has no usable classpath; run: mvn -q compile exec:exec"
+                            + " -Dexec.executable=java \"-Dexec.args=-cp %classpath YourDevMain\""
+                            + " or set -Djolt.dev.classpath");
+        }
+        return javaClassPath;
     }
 
     /** A running dev loop. */
@@ -49,23 +75,40 @@ public final class Dev {
 
         private final String mainClass;
         private final List<String> jvmArgs;
+        private final Launcher launcher;
         private final WatchService watcher;
         private final Thread loop;
         private final AtomicInteger restarts = new AtomicInteger();
         private volatile Process child;
         private volatile boolean closed;
 
-        private Session(String mainClass, List<String> jvmArgs, Path[] dirs) {
+        private Session(String mainClass, List<String> jvmArgs, Launcher launcher, Path[] dirs) {
             this.mainClass = mainClass;
             this.jvmArgs = List.copyOf(jvmArgs);
+            this.launcher = launcher;
             try {
-                this.watcher = java.nio.file.FileSystems.getDefault().newWatchService();
-                for (Path dir : dirs) register(dir);
+                this.watcher = FileSystems.getDefault().newWatchService();
             } catch (IOException e) {
                 throw new IllegalStateException("cannot watch directories: " + e.getMessage(), e);
             }
-            spawn();
-            this.loop = Thread.ofPlatform().name("jolt-dev-watch").daemon().start(this::watch);
+            try {
+                for (Path dir : dirs) {
+                    if (Files.isDirectory(dir)) {
+                        register(dir);
+                    } else {
+                        LOG.log(
+                                System.Logger.Level.WARNING,
+                                "not watching missing directory {0}",
+                                dir);
+                    }
+                }
+                spawn();
+                this.loop = Thread.ofPlatform().name("jolt-dev-watch").daemon().start(this::watch);
+            } catch (IOException | RuntimeException e) {
+                abort();
+                if (e instanceof RuntimeException re) throw re;
+                throw new IllegalStateException("cannot watch directories: " + e.getMessage(), e);
+            }
         }
 
         /** Number of restarts since start. */
@@ -78,6 +121,10 @@ public final class Dev {
             if (closed) return;
             closed = true;
             loop.interrupt();
+            abort();
+        }
+
+        private void abort() {
             try {
                 watcher.close();
             } catch (IOException ignored) {
@@ -87,17 +134,22 @@ public final class Dev {
         }
 
         private void watch() {
-            try {
-                while (!closed) {
+            while (!closed) {
+                try {
                     WatchKey key = watcher.take();
                     handle(key);
                     while ((key = watcher.poll(DEBOUNCE_MILLIS, TimeUnit.MILLISECONDS)) != null) {
                         handle(key);
                     }
                     restart();
+                } catch (InterruptedException | ClosedWatchServiceException e) {
+                    return;
+                } catch (RuntimeException e) {
+                    LOG.log(
+                            System.Logger.Level.ERROR,
+                            "restart failed, waiting for next change",
+                            e);
                 }
-            } catch (InterruptedException | java.nio.file.ClosedWatchServiceException e) {
-                Thread.currentThread().interrupt();
             }
         }
 
@@ -153,12 +205,15 @@ public final class Dev {
             cmd.add(java);
             cmd.addAll(jvmArgs);
             cmd.add("-cp");
-            cmd.add(System.getProperty("java.class.path"));
+            cmd.add(
+                    classpath(
+                            System.getProperty("java.class.path"),
+                            System.getProperty("jolt.dev.classpath")));
             cmd.add(mainClass);
             ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
             pb.environment().put("JOLT_DEV", "1");
             try {
-                child = pb.start();
+                child = launcher.launch(pb);
             } catch (IOException e) {
                 throw new IllegalStateException("cannot start " + mainClass, e);
             }
@@ -167,6 +222,7 @@ public final class Dev {
         private void kill() {
             Process p = child;
             if (p == null) return;
+            child = null;
             p.descendants().forEach(ProcessHandle::destroyForcibly);
             p.destroyForcibly();
             try {
