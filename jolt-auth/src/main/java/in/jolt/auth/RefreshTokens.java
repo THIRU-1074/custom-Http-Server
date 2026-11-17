@@ -77,28 +77,50 @@ public final class RefreshTokens {
         return this;
     }
 
-    /** Starts a new session for {@code subject}. */
+    /**
+     * Starts a new session for {@code subject}.
+     *
+     * @throws HttpException 503 if the store is full
+     */
     public Pair issue(String subject) {
-        return pair(subject, random(16));
+        String access = jwt.sign(subject, claims.apply(subject), accessTtl);
+        String refresh = random(32);
+        try {
+            store.save(entry(refresh, subject, random(16)));
+        } catch (IllegalStateException e) {
+            throw full(e);
+        }
+        return new Pair(access, refresh);
     }
 
     /**
-     * Redeems {@code token} for a new pair and invalidates it.
+     * Redeems {@code token} for a new pair and invalidates it. The new tokens are built before the
+     * old one is consumed, so a failure leaves it usable.
      *
      * @throws HttpException 401 if the token is unknown, expired or revoked; a token that was
-     *     already redeemed also revokes its family
+     *     already redeemed also revokes its family. 503 if the store is full.
      */
     public Pair refresh(String token) {
-        RefreshStore.Entry entry =
-                token == null || token.isEmpty() ? null : store.find(hash(token));
-        if (entry == null || !entry.expires().isAfter(clock.instant())) {
+        RefreshStore.Entry old = token == null || token.isEmpty() ? null : store.find(hash(token));
+        if (old == null || !old.expires().isAfter(clock.instant())) {
             throw invalid();
         }
-        if (!store.markUsed(entry.hash())) {
-            revokeFamily(entry.subject(), entry.family());
+        String access = jwt.sign(old.subject(), claims.apply(old.subject()), accessTtl);
+        String refresh = random(32);
+        boolean rotated;
+        try {
+            rotated =
+                    !old.used()
+                            && store.rotate(
+                                    old.hash(), entry(refresh, old.subject(), old.family()));
+        } catch (IllegalStateException e) {
+            throw full(e);
+        }
+        if (!rotated) {
+            revokeFamily(old.subject(), old.family());
             throw invalid();
         }
-        return pair(entry.subject(), entry.family());
+        return new Pair(access, refresh);
     }
 
     /** Revokes the session this token belongs to. Unknown tokens are ignored. */
@@ -120,12 +142,13 @@ public final class RefreshTokens {
         onRevoke.accept(subject, family);
     }
 
-    private Pair pair(String subject, String family) {
-        String refresh = random(32);
-        store.save(
-                new RefreshStore.Entry(
-                        hash(refresh), subject, family, clock.instant().plus(refreshTtl), false));
-        return new Pair(jwt.sign(subject, claims.apply(subject), accessTtl), refresh);
+    private RefreshStore.Entry entry(String refresh, String subject, String family) {
+        return new RefreshStore.Entry(
+                hash(refresh), subject, family, clock.instant().plus(refreshTtl), false);
+    }
+
+    private static HttpException full(IllegalStateException e) {
+        return new HttpException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
     }
 
     private static HttpException invalid() {

@@ -1,7 +1,6 @@
 package in.jolt.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -184,15 +183,61 @@ class RefreshTokensTest {
     }
 
     @Test
-    void storeIsBounded() {
+    void fullStoreOfLiveEntriesRejectsNewIssuesWith503() {
         MemoryRefreshStore store = new MemoryRefreshStore(3);
         RefreshTokens rt = tokens(store);
         var first = rt.issue("a");
         rt.issue("b");
         rt.issue("c");
-        rt.issue("d");
+        assertEquals(503, status(() -> rt.issue("d")));
         assertEquals(3, store.size());
-        assertEquals(401, status(() -> rt.refresh(first.refreshToken())));
+        assertEquals(503, status(() -> rt.refresh(first.refreshToken())));
+        rt.revoke(first.refreshToken());
+        rt.issue("d");
+    }
+
+    @Test
+    void usedTombstonesAreEvictedBeforeRejecting() {
+        MemoryRefreshStore store = new MemoryRefreshStore(2);
+        RefreshTokens rt = tokens(store);
+        var a = rt.issue("a");
+        rt.refresh(a.refreshToken());
+        assertEquals(2, store.size());
+        rt.issue("b");
+        assertEquals(2, store.size());
+    }
+
+    @Test
+    void oneSubjectCannotEvictAnothersTokens() {
+        MemoryRefreshStore store = new MemoryRefreshStore(100, 3, clock);
+        RefreshTokens rt = tokens(store);
+        var ada = rt.issue("ada");
+        List<RefreshTokens.Pair> spam = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            spam.add(rt.issue("mallory"));
+        }
+        rt.refresh(ada.refreshToken());
+        assertEquals(401, status(() -> rt.refresh(spam.get(0).refreshToken())));
+        assertEquals(401, status(() -> rt.refresh(spam.get(2).refreshToken())));
+        rt.refresh(spam.get(3).refreshToken());
+        rt.refresh(spam.get(5).refreshToken());
+    }
+
+    @Test
+    void failingClaimsLeavesTheOldTokenUsable() {
+        int[] calls = {0};
+        RefreshTokens rt =
+                tokens(new MemoryRefreshStore(100))
+                        .claims(
+                                subject -> {
+                                    if (calls[0]++ == 1) {
+                                        throw new IllegalStateException("db down");
+                                    }
+                                    return Map.of();
+                                });
+        var pair = rt.issue("ada");
+        assertThrows(IllegalStateException.class, () -> rt.refresh(pair.refreshToken()));
+        rt.refresh(pair.refreshToken());
     }
 
     @Test
@@ -208,29 +253,40 @@ class RefreshTokensTest {
     }
 
     @Test
-    void concurrentReuseOnlyOneWins() throws Exception {
-        RefreshTokens rt = tokens(new MemoryRefreshStore(100));
-        String token = rt.issue("ada").refreshToken();
-        var wins = new java.util.concurrent.atomic.AtomicInteger();
-        var threads = new ArrayList<Thread>();
-        for (int i = 0; i < 8; i++) {
-            threads.add(
-                    Thread.ofPlatform()
-                            .start(
-                                    () -> {
-                                        try {
-                                            rt.refresh(token);
-                                            wins.incrementAndGet();
-                                        } catch (HttpException e) {
-                                            assertEquals(401, e.status());
-                                        }
-                                    }));
+    void concurrentRedemptionHasOneWinnerAndRevokesTheFamily() throws Exception {
+        for (int round = 0; round < 30; round++) {
+            MemoryRefreshStore store = new MemoryRefreshStore(100);
+            RefreshTokens rt = tokens(store);
+            String token = rt.issue("ada").refreshToken();
+            var go = new java.util.concurrent.CountDownLatch(1);
+            var winners = new java.util.concurrent.ConcurrentLinkedQueue<RefreshTokens.Pair>();
+            var losers = new java.util.concurrent.atomic.AtomicInteger();
+            var threads = new ArrayList<Thread>();
+            for (int i = 0; i < 2; i++) {
+                threads.add(
+                        Thread.ofPlatform()
+                                .start(
+                                        () -> {
+                                            try {
+                                                go.await();
+                                                winners.add(rt.refresh(token));
+                                            } catch (HttpException e) {
+                                                assertEquals(401, e.status());
+                                                losers.incrementAndGet();
+                                            } catch (InterruptedException e) {
+                                                Thread.currentThread().interrupt();
+                                            }
+                                        }));
+            }
+            go.countDown();
+            for (Thread t : threads) {
+                t.join();
+            }
+            assertEquals(1, winners.size());
+            assertEquals(1, losers.get());
+            assertEquals(0, store.size());
+            assertEquals(401, status(() -> rt.refresh(winners.peek().refreshToken())));
         }
-        for (Thread t : threads) {
-            t.join();
-        }
-        assertTrue(wins.get() <= 1);
-        assertFalse(wins.get() > 1);
     }
 
     @Test
