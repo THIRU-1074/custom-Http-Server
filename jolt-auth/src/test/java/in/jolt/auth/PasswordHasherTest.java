@@ -61,4 +61,27 @@ class PasswordHasherTest {
     void nonPositiveIterationsAreRefused() {
         assertThrows(IllegalArgumentException.class, () -> PasswordHasher.hash(PASSWORD, 0));
     }
+
+    @Test
+    void nullInputsNeverThrowFromVerify() {
+        assertFalse(PasswordHasher.verify(null, EXAMPLE_HASH));
+        assertFalse(PasswordHasher.verify(null, null));
+    }
+
+    @Test
+    void hashRejectsNullWithAClearMessage() {
+        var e =
+                assertThrows(
+                        IllegalArgumentException.class, () -> PasswordHasher.hash((String) null));
+        assertEquals("password must not be null", e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> PasswordHasher.hash((char[]) null));
+    }
+
+    @Test
+    void absurdStoredIterationCountsAreRejectedWithoutDerivation() {
+        String tampered = "pbkdf2$2000000000$AAECAwQFBgcICQoLDA0ODw==$AA==";
+        assertFalse(PasswordHasher.verify(PASSWORD, tampered));
+        assertTrue(PasswordHasher.needsRehash(tampered));
+        assertTrue(PasswordHasher.needsRehash(tampered, 1));
+    }
 }

@@ -16,6 +16,7 @@ public final class PasswordHasher {
     /** Iteration count used when none is given. */
     public static final int DEFAULT_ITERATIONS = 210_000;
 
+    private static final int MAX_STORED_ITERATIONS = 10_000_000;
     private static final int SALT_BYTES = 16;
     private static final int KEY_BITS = 256;
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -27,7 +28,7 @@ public final class PasswordHasher {
     }
 
     public static String hash(String password, int iterations) {
-        return hash(password.toCharArray(), iterations);
+        return hash(password == null ? null : password.toCharArray(), iterations);
     }
 
     public static String hash(char[] password) {
@@ -36,6 +37,9 @@ public final class PasswordHasher {
 
     /** Hashes with a fresh salt; the given array is left untouched. */
     public static String hash(char[] password, int iterations) {
+        if (password == null) {
+            throw new IllegalArgumentException("password must not be null");
+        }
         if (iterations <= 0) {
             throw new IllegalArgumentException("iterations must be positive");
         }
@@ -53,7 +57,7 @@ public final class PasswordHasher {
     /** Returns false for a wrong password or any malformed stored value; never throws on input. */
     public static boolean verify(String password, String stored) {
         String[] parts = parse(stored);
-        if (parts == null) {
+        if (parts == null || password == null) {
             return false;
         }
         try {
@@ -61,6 +65,7 @@ public final class PasswordHasher {
             byte[] salt = Base64.getDecoder().decode(parts[2]);
             byte[] expected = Base64.getDecoder().decode(parts[3]);
             return iterations > 0
+                    && iterations <= MAX_STORED_ITERATIONS
                     && MessageDigest.isEqual(
                             expected, derive(password.toCharArray(), salt, iterations));
         } catch (IllegalArgumentException e) {
@@ -72,14 +77,18 @@ public final class PasswordHasher {
         return needsRehash(stored, DEFAULT_ITERATIONS);
     }
 
-    /** True when {@code stored} is malformed or uses fewer than {@code iterations} iterations. */
+    /**
+     * True when {@code stored} is malformed, uses fewer than {@code iterations} iterations, or an
+     * implausible count above 10 million.
+     */
     public static boolean needsRehash(String stored, int iterations) {
         String[] parts = parse(stored);
         if (parts == null) {
             return true;
         }
         try {
-            return Integer.parseInt(parts[1]) < iterations;
+            int count = Integer.parseInt(parts[1]);
+            return count < iterations || count > MAX_STORED_ITERATIONS;
         } catch (NumberFormatException e) {
             return true;
         }
