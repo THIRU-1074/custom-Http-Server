@@ -5,11 +5,13 @@ import in.jolt.internal.http.Metrics;
 import in.jolt.internal.http.Resources;
 import in.jolt.internal.openapi.OpenApi;
 import in.jolt.internal.routing.Suggest;
+import in.jolt.internal.task.Tasks;
 import in.jolt.internal.view.Views;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -39,6 +41,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private volatile Metrics metrics;
     private final List<Server.Hook> hooks = new ArrayList<>();
     private boolean listening;
+    private final Tasks tasks = new Tasks();
 
     App(JoltConfig config) {
         this.config = config;
@@ -209,6 +212,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
             return this;
         }
         Metrics m = new Metrics();
+        m.section(tasks::render);
         metrics = m;
         get("/_jolt/health", (req, res) -> res.json(Map.of("status", "UP")));
         Handler scrape =
@@ -246,6 +250,51 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     public App lifecycle(Runnable start, Runnable stop) {
         return register(
                 Objects.requireNonNull(start, "start"), Objects.requireNonNull(stop, "stop"));
+    }
+
+    /**
+     * Runs {@code task} every {@code period} (first run after one period) on a virtual thread from
+     * {@link #listen} until {@link Server#close()}. A throw is logged and the schedule goes on; a
+     * tick that finds the previous run still going is skipped. Counted as {@code jolt_task_*}
+     * series under the name {@code task-N}.
+     */
+    public App every(Duration period, Runnable task) {
+        return every(tasks.nextName(), period, task);
+    }
+
+    /** As {@link #every(Duration, Runnable)}, with a stable {@code name} for the metrics label. */
+    public App every(String name, Duration period, Runnable task) {
+        requirePositive(period, "period");
+        return schedule(name, period, period, task);
+    }
+
+    /** Runs {@code task} once, {@code delay} after {@link #listen}, as {@link #every}. */
+    public App after(Duration delay, Runnable task) {
+        return after(tasks.nextName(), delay, task);
+    }
+
+    /** As {@link #after(Duration, Runnable)}, with a stable {@code name} for the metrics label. */
+    public App after(String name, Duration delay, Runnable task) {
+        Objects.requireNonNull(delay, "delay");
+        if (delay.isNegative()) {
+            throw new IllegalArgumentException("delay must not be negative");
+        }
+        return schedule(name, delay, null, task);
+    }
+
+    private static void requirePositive(Duration d, String what) {
+        Objects.requireNonNull(d, what);
+        if (d.isNegative() || d.isZero()) {
+            throw new IllegalArgumentException(what + " must be positive");
+        }
+    }
+
+    private synchronized App schedule(String name, Duration delay, Duration period, Runnable body) {
+        if (listening) {
+            throw new IllegalStateException("Tasks must be registered before listen()");
+        }
+        Tasks.Task t = tasks.add(name, delay, period, body);
+        return register(t::start, t::stop);
     }
 
     private synchronized App register(Runnable start, Runnable stop) {
