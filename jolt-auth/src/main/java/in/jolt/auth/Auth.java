@@ -8,7 +8,9 @@ import java.util.Set;
 
 /**
  * Role checks for requests already authenticated by {@link JwtAuth#middleware()} or {@link
- * BasicAuth}. Install after the authentication middleware, e.g. {@code app.use("/admin", ...)}.
+ * BasicAuth#require(java.util.function.BiPredicate, java.util.function.Function)}. Plain Basic auth
+ * carries no roles. Install after the authentication middleware, e.g. {@code app.use("/admin",
+ * ...)}.
  */
 public final class Auth {
 

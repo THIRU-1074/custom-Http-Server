@@ -24,6 +24,12 @@ class RolesTest {
         app.get("/both/x", (req, res) -> res.text("in"));
         app.use("/basic", BasicAuth.require((u, p) -> true));
         app.use("/basic", Auth.requireRole("admin"));
+        app.use(
+                "/basicroles",
+                BasicAuth.require(
+                        (u, p) -> true, u -> u.equals("root") ? List.of("admin") : List.of()));
+        app.use("/basicroles", Auth.requireRole("admin"));
+        app.get("/basicroles/x", (req, res) -> res.text("in"));
         app.get("/basic/x", (req, res) -> res.text("in"));
         app.use("/open", Auth.requireRole("admin"));
         app.get("/open/x", (req, res) -> res.text("in"));
@@ -83,6 +89,13 @@ class RolesTest {
     @Test
     void basicAuthUsersHaveNoRoles() {
         client().get("/basic/x").header("Authorization", "Basic dTpw").expect(403);
+    }
+
+    @Test
+    void basicAuthWithRoleLookupFeedsRequireRole() {
+        var t = client();
+        t.get("/basicroles/x").header("Authorization", "Basic cm9vdDpw").expect(200);
+        t.get("/basicroles/x").header("Authorization", "Basic dTpw").expect(403);
     }
 
     @Test
