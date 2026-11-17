@@ -14,6 +14,7 @@ import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -320,6 +321,10 @@ class MigrationsTest {
 
     List<Applied> withLoader(ClassLoader cl, String folder) {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        // DriverManager discovers drivers once per JVM through the context loader of its first
+        // caller. Without this, a parent-less loader here hides sqlite-jdbc from every later test
+        // whenever this test happens to run first (it does on Linux CI).
+        DriverManager.getDrivers();
         try {
             Thread.currentThread().setContextClassLoader(cl);
             return Migrations.runClasspath(db, folder);
