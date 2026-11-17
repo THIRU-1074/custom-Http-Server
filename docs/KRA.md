@@ -116,7 +116,7 @@ These were found by reviewing the baseline. They define the v1 roadmap. Location
 
 ## v0.3.1 outcomes
 
-v0.1.0 was a raw `ServerSocket` server with 15 documented limitations. The code was then rewritten as a multi-module Java 21 library (`jolt-core` with no dependencies, plus `jolt-auth`, `jolt-mcp`, `jolt-db`, `jolt-dev`, `jolt-archetype`, examples and `jolt-starter`). It is published through JitPack as `com.github.THIRU-1074.custom-Http-Server:<module>:v0.3.1`. `v0.2.0` also exists. The v0.3.0 tag failed to build and has no artifacts.
+v0.1.0 was a raw `ServerSocket` server with 15 documented limitations. The code was then rewritten as a multi-module Java 21 library (`jolt-core` with no dependencies, plus `jolt-auth`, `jolt-mcp`, `jolt-db`, `jolt-dev`, `jolt-archetype`, examples and `jolt-starter`). It is published through JitPack as `com.github.THIRU-1074.custom-Http-Server:<module>:v0.3.1`. `v0.2.0` also exists. The v0.3.0 tag failed to build and has no artifacts. On 2026-11-17 the two v0.1-era demo servers (the attendance app and the webhook broadcast service) were removed from the repository; `examples/todos-solid` remains.
 
 ### L1-L15 closed
 

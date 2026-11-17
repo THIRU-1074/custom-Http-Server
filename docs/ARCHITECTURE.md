@@ -27,8 +27,6 @@ jolt-db/                     Db: bounded JDBC pool, parameterized queries, trans
 jolt-dev/                    Dev (restart runner), DevErrors (opt-in error page)
 jolt-archetype/              Maven archetype generating the starter project
 jolt-starter/                standalone todos project (not in the reactor)
-examples/attendance          JWT login demo with SQLite
-examples/webhook             webhook broadcast service
 examples/todos-solid         SOLID reference app (domain, adapters, web, composition root)
 benchmarks/                  tokens, load, verify, guard, mcp
 ```
