@@ -1,5 +1,7 @@
 package in.jolt.auth;
 
+import in.jolt.HttpException;
+import in.jolt.HttpStatus;
 import in.jolt.Middleware;
 import java.util.HashSet;
 import java.util.Map;
@@ -10,7 +12,8 @@ import java.util.Set;
  * BasicAuth#require(java.util.function.BiPredicate, java.util.function.Function)}. Plain Basic auth
  * carries no roles. Install after the authentication middleware, e.g. {@code app.use("/admin",
  * ...)}. A request with no user means the authentication middleware is missing or ordered after
- * this one; it gets a 401 with a bearer challenge.
+ * this one; it gets a 401 with a bearer challenge. Rejections throw {@link HttpException} (401 or
+ * 403), so {@code app.onError} and problem+json apply.
  */
 public final class Auth {
 
@@ -33,16 +36,13 @@ public final class Auth {
         Set<String> need = Set.copyOf(java.util.Arrays.asList(required));
         return (req, res, next) -> {
             if (req.attr("user") == null) {
-                res.header("WWW-Authenticate", "Bearer")
-                        .status(401)
-                        .text("Authentication required");
-                return;
+                res.header("WWW-Authenticate", "Bearer");
+                throw new HttpException(HttpStatus.UNAUTHORIZED, "Authentication required");
             }
             Set<String> have = rolesOf(req.attr("claims"));
             boolean ok = all ? have.containsAll(need) : need.stream().anyMatch(have::contains);
             if (!ok) {
-                res.status(403).text("Forbidden");
-                return;
+                throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
             }
             next.run();
         };

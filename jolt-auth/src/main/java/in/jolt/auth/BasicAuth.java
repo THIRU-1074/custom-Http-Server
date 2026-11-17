@@ -1,5 +1,7 @@
 package in.jolt.auth;
 
+import in.jolt.HttpException;
+import in.jolt.HttpStatus;
 import in.jolt.Middleware;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -15,7 +17,8 @@ public final class BasicAuth {
 
     /**
      * Requires {@code Authorization: Basic ...}. {@code verifier} receives the user and password;
-     * on success the request attribute {@code user} is set, otherwise the response is 401.
+     * on success the request attribute {@code user} is set, otherwise it sets {@code
+     * WWW-Authenticate} and throws {@link HttpException} 401.
      */
     public static Middleware require(BiPredicate<String, String> verifier) {
         return require(verifier, null);
@@ -47,10 +50,8 @@ public final class BasicAuth {
                 }
             }
             if (user == null || !verifier.test(user, password)) {
-                res.header("WWW-Authenticate", "Basic realm=\"jolt\"")
-                        .status(401)
-                        .text("Invalid credentials");
-                return;
+                res.header("WWW-Authenticate", "Basic realm=\"jolt\"");
+                throw new HttpException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
             }
             req.attr("user", user);
             if (roles != null) {

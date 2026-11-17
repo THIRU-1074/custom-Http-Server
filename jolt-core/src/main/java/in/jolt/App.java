@@ -34,7 +34,7 @@ public final class App extends Router {
 
     private final JoltConfig config;
 
-    private record Entry(long order, ErrorMapper<?> mapper) {}
+    private record Entry(long order, ErrorMapper.WithRequest<?> mapper) {}
 
     private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
     private volatile Views views;
@@ -55,8 +55,8 @@ public final class App extends Router {
                 }
 
                 @Override
-                public Reply<?> mapError(Throwable t) {
-                    return App.this.mapError(t);
+                public Reply<?> mapError(Throwable t, Request req) {
+                    return App.this.mapError(t, req);
                 }
 
                 @Override
@@ -110,12 +110,36 @@ public final class App extends Router {
      * never by a broader type such as {@code RuntimeException}.
      */
     public <E> App onError(Class<E> type, ErrorMapper<E> mapper) {
+        Objects.requireNonNull(mapper, "mapper");
+        return onError(type, (ErrorMapper.WithRequest<E>) (e, req) -> mapper.map(e));
+    }
+
+    /**
+     * As {@link #onError(Class, ErrorMapper)} with the failed request, e.g. {@code (e, req) ->
+     * Reply.status(409, Map.of("path", req.path()))}.
+     */
+    public <E> App onError(Class<E> type, ErrorMapper.WithRequest<E> mapper) {
+        Objects.requireNonNull(mapper, "mapper");
         mappers.put(type, new Entry(registrations.getAndIncrement(), mapper));
         return this;
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * The reply the closest {@link #onError} mapper gives for {@code t}.
+     *
+     * @deprecated request-aware mappers get a {@code null} request; use {@link #mapError(Throwable,
+     *     Request)}
+     */
+    @Deprecated(since = "0.4.1")
     public Reply<?> mapError(Throwable t) {
+        return mapError(t, null);
+    }
+
+    /**
+     * The reply the closest {@link #onError} mapper gives for {@code t} on {@code req}, or null.
+     */
+    @SuppressWarnings("unchecked")
+    public Reply<?> mapError(Throwable t, Request req) {
         boolean http = t instanceof HttpException;
         Set<Class<?>> seen = new HashSet<>();
         List<Class<?>> level = List.of(t.getClass());
@@ -128,7 +152,7 @@ public final class App extends Router {
                 }
             }
             if (best != null) {
-                return ((ErrorMapper<Object>) best.mapper).map(t);
+                return ((ErrorMapper.WithRequest<Object>) best.mapper).map(t, req);
             }
             List<Class<?>> next = new ArrayList<>();
             for (Class<?> c : level) {

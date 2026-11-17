@@ -25,8 +25,11 @@ public final class ConnectionHandler implements Runnable {
     public interface Dispatcher {
         void dispatch(Request req, Response res) throws Exception;
 
-        /** The reply a registered mapper gives for {@code t}, or {@code null} if none applies. */
-        default Reply<?> mapError(Throwable t) {
+        /**
+         * The reply a registered mapper gives for {@code t} on {@code req}, or {@code null} if none
+         * applies.
+         */
+        default Reply<?> mapError(Throwable t, Request req) {
             return null;
         }
 
@@ -357,7 +360,7 @@ public final class ConnectionHandler implements Runnable {
     private static Response failure(
             Dispatcher dispatcher, JoltConfig config, Response res, Request req, Throwable t) {
         try {
-            Reply<?> reply = dispatcher.mapError(t);
+            Reply<?> reply = dispatcher.mapError(t, req);
             if (reply != null) {
                 if (!(t instanceof HttpException)) {
                     LOG.log(
@@ -365,27 +368,27 @@ public final class ConnectionHandler implements Runnable {
                             "Mapped exception on " + req.method() + " " + req.path(),
                             t);
                 }
-                return Replies.error(res, reply, config);
+                return Replies.error(res, reply, config, req);
             }
         } catch (HttpException e) {
-            return Replies.error(res, e, config);
+            return Replies.error(res, e, config, req);
         } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
-            return internalError(res, config);
+            return internalError(res, config, req);
         }
         if (t instanceof HttpException e) {
-            return Replies.error(res, e, config);
+            return Replies.error(res, e, config, req);
         }
         LOG.log(
                 System.Logger.Level.ERROR,
                 "Unhandled exception on " + req.method() + " " + req.path(),
                 t);
-        return internalError(res, config);
+        return internalError(res, config, req);
     }
 
-    private static Response internalError(Response res, JoltConfig config) {
+    private static Response internalError(Response res, JoltConfig config, Request req) {
         return Replies.error(
-                res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error", config);
+                res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error", config, req);
     }
 
     private static void writeError(OutputStream out, JoltConfig config, int status, String message)

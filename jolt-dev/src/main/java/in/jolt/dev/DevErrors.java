@@ -42,7 +42,7 @@ public final class DevErrors {
                 if (!enabled.getAsBoolean()
                         || res.isSent()
                         || e instanceof HttpException
-                        || (app != null && app.mapError(e) != null)) {
+                        || (app != null && app.mapError(e, req) != null)) {
                     throw e;
                 }
                 res.status(500).html(render(req.method() + " " + req.path(), e));
