@@ -133,7 +133,7 @@ mvn -pl examples/todos-solid exec:java     # port 8080, or set PORT
 mvn -pl examples/webhook exec:java         # port 5008, needs WEBHOOK_USER and WEBHOOK_PASSWORD
 ```
 
-The servers bind to loopback only. Set `JOLT_BIND_ADDRESS=0.0.0.0` (read by `JoltConfig.fromEnv()`) to expose one. The attendance demo also reads `JWT_SECRET` (at least 32 bytes) and, on first start, `ADMIN_USER` and `ADMIN_PASSWORD` (12+ chars); see [docs/examples.md](docs/examples.md). SOLID guide: [docs/SOLID.md](docs/SOLID.md).
+The servers bind to loopback by default. For attendance and webhook, set `JOLT_BIND_ADDRESS=0.0.0.0` (read by `JoltConfig.fromEnv()`) to expose them. The attendance demo also reads `JWT_SECRET` (at least 32 bytes) and, on first start, `ADMIN_USER` and `ADMIN_PASSWORD` (12+ chars); see [docs/examples.md](docs/examples.md). SOLID guide: [docs/SOLID.md](docs/SOLID.md).
 
 ## Contributing
 

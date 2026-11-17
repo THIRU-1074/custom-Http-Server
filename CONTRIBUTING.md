@@ -23,7 +23,7 @@ Branch from `main` as `<type>/<short-kebab-description>`, for example `feat/rout
 Conventional Commits: `type(scope): subject`.
 
 - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `build`, `ci`.
-- Scope is optional but preferred (`core`, `auth`, `mcp`, `examples`).
+- Scope is optional but preferred (`core`, `auth`, `mcp`, `db`, `dev`, `examples`).
 - Subject is imperative, lower case, no trailing period, at most 72 characters.
 - No emojis.
 - One logical change per commit. A bug fix and its failing test go in the same commit.
