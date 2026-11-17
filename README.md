@@ -12,7 +12,7 @@ app.listen(8080);
 
 ## Install
 
-Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Central, see [Roadmap](#roadmap)). Current release: `v0.4.0`.
+Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Central, see [Roadmap](#roadmap)). Current release: `v0.4.1`.
 
 ```xml
 <repositories>
@@ -26,7 +26,7 @@ Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Centra
   <dependency>
     <groupId>com.github.THIRU-1074.custom-Http-Server</groupId>
     <artifactId>jolt-core</artifactId>
-    <version>v0.4.0</version>
+    <version>v0.4.1</version>
   </dependency>
 </dependencies>
 ```
