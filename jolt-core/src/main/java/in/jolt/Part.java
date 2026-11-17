@@ -23,8 +23,9 @@ public final class Part {
     }
 
     /**
-     * The client's file name reduced to its last path segment with control characters removed, or
-     * {@code null} for a plain field. Empty when the client sent nothing usable. Never a path.
+     * The client's file name reduced to its last path segment, without control characters or
+     * trailing dots and spaces, cut to 255 characters; {@code null} for a plain field. Empty when
+     * nothing usable remains ({@code ..}, a Windows device name such as {@code CON}). Never a path.
      */
     public String filename() {
         return filename;

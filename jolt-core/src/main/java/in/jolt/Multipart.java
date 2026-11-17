@@ -176,14 +176,31 @@ final class Multipart {
         int cut = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'));
         String base = raw.substring(cut + 1);
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < base.length() && sb.length() < MAX_FILENAME; i++) {
-            char c = base.charAt(i);
-            if (c >= ' ' && c != 0x7f) {
-                sb.append(c);
+        for (int i = 0; i < base.length(); ) {
+            int cp = base.codePointAt(i);
+            i += Character.charCount(cp);
+            if (cp >= ' ' && cp != 0x7f && sb.length() + Character.charCount(cp) <= MAX_FILENAME) {
+                sb.appendCodePoint(cp);
             }
         }
-        String clean = sb.toString();
-        return clean.equals(".") || clean.equals("..") ? "" : clean;
+        int end = sb.length();
+        while (end > 0 && (sb.charAt(end - 1) == '.' || sb.charAt(end - 1) == ' ')) {
+            end--;
+        }
+        String clean = sb.substring(0, end);
+        return clean.isEmpty() || reservedDevice(clean) ? "" : clean;
+    }
+
+    private static boolean reservedDevice(String name) {
+        int dot = name.indexOf('.');
+        String stem = (dot < 0 ? name : name.substring(0, dot)).stripTrailing().toUpperCase();
+        if (stem.equals("CON") || stem.equals("PRN") || stem.equals("AUX") || stem.equals("NUL")) {
+            return true;
+        }
+        return stem.length() == 4
+                && (stem.startsWith("COM") || stem.startsWith("LPT"))
+                && stem.charAt(3) >= '1'
+                && stem.charAt(3) <= '9';
     }
 
     private static void noControls(String s) {
@@ -197,12 +214,29 @@ final class Multipart {
 
     /** Splits on semicolons outside quotes; the first element is the bare value. */
     private static List<String> splitParams(String s) {
+        List<String> out = splitParams(s, true);
+        if (out == null) {
+            out = splitParams(s, false);
+        }
+        if (out == null) {
+            throw bad("Unterminated quoted string");
+        }
+        return out;
+    }
+
+    private static List<String> splitParams(String s, boolean escapes) {
         List<String> out = new ArrayList<>();
         StringBuilder cur = new StringBuilder();
         boolean quoted = false;
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (quoted && c == '\\' && i + 1 < s.length()) {
+            boolean escaped =
+                    escapes
+                            && quoted
+                            && c == '\\'
+                            && i + 1 < s.length()
+                            && (s.charAt(i + 1) == '"' || s.charAt(i + 1) == '\\');
+            if (escaped) {
                 cur.append(c).append(s.charAt(++i));
                 continue;
             }
@@ -217,7 +251,7 @@ final class Multipart {
             }
         }
         if (quoted) {
-            throw bad("Unterminated quoted string");
+            return null;
         }
         out.add(cur.toString().strip());
         return out;

@@ -195,6 +195,79 @@ class MultipartTest {
         }
     }
 
+    private static String filename(String raw) {
+        return parse(
+                        body(
+                                part(
+                                        "form-data; name=\"f\"; filename=\"" + raw + "\"",
+                                        null,
+                                        ascii("x")),
+                                close()))
+                .get(0)
+                .filename();
+    }
+
+    @Test
+    void browserWindowsPathEndingInABackslashStillParses() {
+        assertEquals("", filename("C:\\uploads\\"));
+        assertEquals("a.txt", filename("C:\\uploads\\a.txt"));
+        List<Part> parts =
+                parse(
+                        body(
+                                part(
+                                        "form-data; name=\"f\"; filename=\"C:\\uploads\\\"",
+                                        null,
+                                        ascii("x")),
+                                field("after", "ok"),
+                                close()));
+        assertEquals("after", parts.get(1).name());
+    }
+
+    @Test
+    void trailingDotsAndSpacesAreStripped() {
+        assertEquals("report", filename("report. . "));
+        assertEquals("", filename("..."));
+        assertEquals("", filename("   "));
+        assertEquals("a.txt", filename("a.txt"));
+    }
+
+    @Test
+    void windowsDeviceNamesAreEmpty() {
+        for (String n :
+                new String[] {
+                    "CON",
+                    "con",
+                    "PRN",
+                    "Aux",
+                    "NUL",
+                    "COM1",
+                    "com9",
+                    "LPT1",
+                    "lpt9",
+                    "con.txt",
+                    "NUL.tar.gz",
+                    "AUX .txt",
+                    "COM3.",
+                    "dir/CON.log"
+                }) {
+            assertEquals("", filename(n), n);
+        }
+        for (String n : new String[] {"COM0", "COM10", "LPT", "console.txt", "xcon", "nul-1"}) {
+            assertEquals(n, filename(n), n);
+        }
+    }
+
+    @Test
+    void truncationNeverSplitsASurrogatePair() {
+        String emoji = new String(Character.toChars(0x1F600));
+        String got = filename("a".repeat(254) + emoji);
+        assertEquals(254, got.length());
+        assertEquals(255, filename("b".repeat(300)).length());
+        String cut = filename(emoji.repeat(200));
+        assertEquals(0, cut.length() % 2);
+        assertEquals(true, cut.length() <= 255);
+    }
+
     @Test
     void overlongFilenameIsTruncated() {
         List<Part> parts =
