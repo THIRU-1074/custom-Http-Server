@@ -135,7 +135,8 @@ class BookingTest {
 
     @Test
     void immediateTransactionTakesWriteLockAtBegin() throws Exception {
-        try (Db other = Db.open(url, 2, Duration.ofSeconds(2)).busyRetries(0)) {
+        try (Db other =
+                Db.open(url, 2, Duration.ofSeconds(2)).busyTimeout(Duration.ofMillis(200))) {
             CountDownLatch held = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
             Thread holder =
@@ -150,11 +151,14 @@ class BookingTest {
                                                         return null;
                                                     }));
             held.await();
+            long start = System.nanoTime();
             var e =
                     assertThrows(
                             DbException.class,
                             () -> other.inTransaction(TxMode.IMMEDIATE, tx -> "never"));
+            assertTrue(System.nanoTime() - start >= Duration.ofMillis(200).toNanos());
             assertTrue(e.getMessage().contains("busy"), e.getMessage());
+            assertTrue(e.getMessage().contains("waited"), e.getMessage());
             assertEquals(0, other.inUse());
             release.countDown();
             holder.join();
@@ -164,7 +168,7 @@ class BookingTest {
 
     @Test
     void immediateTransactionRetriesWhileBusy() throws Exception {
-        try (Db other = Db.open(url, 2, Duration.ofSeconds(2)).busyRetries(6)) {
+        try (Db other = Db.open(url, 2, Duration.ofSeconds(2)).busyTimeout(Duration.ofSeconds(2))) {
             CountDownLatch held = new CountDownLatch(1);
             Thread holder =
                     Thread.ofVirtual()
@@ -185,8 +189,8 @@ class BookingTest {
     }
 
     @Test
-    void busyRetriesMustNotBeNegative() {
-        assertThrows(IllegalArgumentException.class, () -> db.busyRetries(-1));
+    void busyTimeoutMustNotBeNegative() {
+        assertThrows(IllegalArgumentException.class, () -> db.busyTimeout(Duration.ofMillis(-1)));
     }
 
     @Test

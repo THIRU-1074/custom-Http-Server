@@ -206,6 +206,7 @@ class MigrationsTest {
         file("V2__b.sql", "insert into counter values (1);");
         file("V3__c.sql", "insert into counter values (1);");
         String url = "jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=10000";
+        db.query("select 1", rs -> 1);
         CyclicBarrier start = new CyclicBarrier(2);
         List<Db> dbs =
                 List.of(

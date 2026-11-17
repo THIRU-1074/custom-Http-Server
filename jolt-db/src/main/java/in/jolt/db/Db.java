@@ -23,9 +23,10 @@ public final class Db implements Sql, AutoCloseable {
     public static final int DEFAULT_SIZE = 8;
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
     public static final Duration DEFAULT_QUERY_TIMEOUT = Duration.ofSeconds(30);
-    public static final int DEFAULT_BUSY_RETRIES = 5;
+    public static final Duration DEFAULT_BUSY_TIMEOUT = Duration.ofSeconds(5);
     public static final int DEFAULT_BATCH_CHUNK = 500;
-    private static final long BUSY_BACKOFF_MS = 10;
+    private static final long BACKOFF_START_MS = 10;
+    private static final long BACKOFF_MAX_MS = 250;
 
     @FunctionalInterface
     interface Factory {
@@ -39,7 +40,7 @@ public final class Db implements Sql, AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final int size;
     private volatile int queryTimeoutSeconds = (int) DEFAULT_QUERY_TIMEOUT.toSeconds();
-    private volatile int busyRetries = DEFAULT_BUSY_RETRIES;
+    private volatile Duration busyTimeout = DEFAULT_BUSY_TIMEOUT;
     private volatile Boolean sqlite;
 
     private Db(Factory factory, int size, Duration timeout) {
@@ -110,7 +111,7 @@ public final class Db implements Sql, AutoCloseable {
     /** Like {@link #batch(String, List)}, sending {@code chunk} rows per round trip. */
     public int[] batch(String sql, List<Object[]> rows, int chunk) {
         int t = queryTimeoutSeconds;
-        return transact(TxMode.DEFERRED, c -> Jdbc.batch(c, t, sql, rows, chunk));
+        return transact(TxMode.DEFERRED, busyTimeout, c -> Jdbc.batch(c, t, sql, rows, chunk));
     }
 
     /** Runs in its own transaction and rolls back when the count differs. */
@@ -123,10 +124,10 @@ public final class Db implements Sql, AutoCloseable {
                 });
     }
 
-    /** Sets how often a busy or locked write lock is retried, 5 by default. Zero disables it. */
-    public Db busyRetries(int retries) {
-        if (retries < 0) throw new IllegalArgumentException("retries must not be negative");
-        this.busyRetries = retries;
+    /** Sets how long an IMMEDIATE transaction waits for a busy write lock, 5 seconds by default. */
+    public Db busyTimeout(Duration limit) {
+        if (limit.isNegative()) throw new IllegalArgumentException("timeout must not be negative");
+        this.busyTimeout = limit;
         return this;
     }
 
@@ -148,6 +149,7 @@ public final class Db implements Sql, AutoCloseable {
         int t = queryTimeoutSeconds;
         return transact(
                 mode,
+                busyTimeout,
                 c -> {
                     ConnectionSql view = new ConnectionSql(c, t);
                     try {
@@ -158,14 +160,14 @@ public final class Db implements Sql, AutoCloseable {
                 });
     }
 
-    private <T> T transact(TxMode mode, ConnWork<T> work) {
+    <T> T transact(TxMode mode, Duration wait, ConnWork<T> work) {
         Connection c = acquire();
         boolean broken = false;
         boolean manual = false;
         boolean begun = false;
         try {
             manual = mode == TxMode.IMMEDIATE && isSqlite(c);
-            if (manual) beginImmediate(c);
+            if (manual) beginImmediate(c, wait);
             else c.setAutoCommit(false);
             begun = true;
             T result = work.run(c);
@@ -282,27 +284,30 @@ public final class Db implements Sql, AutoCloseable {
         return known;
     }
 
-    private void beginImmediate(Connection c) throws SQLException {
-        int attempt = 0;
+    private static void beginImmediate(Connection c, Duration wait) throws SQLException {
+        long start = System.nanoTime();
+        long delay = BACKOFF_START_MS;
         while (true) {
             try {
                 exec(c, "BEGIN IMMEDIATE");
                 return;
             } catch (SQLException e) {
                 if (!isBusy(e)) throw e;
-                if (attempt >= busyRetries) {
+                long left = wait.toMillis() - (System.nanoTime() - start) / 1_000_000;
+                if (left <= 0) {
                     throw new DbException(
-                            "database busy: could not take the write lock after "
-                                    + attempt
-                                    + " retries",
+                            "database busy: waited "
+                                    + (System.nanoTime() - start) / 1_000_000
+                                    + " ms for the write lock",
                             e);
                 }
                 try {
-                    Thread.sleep(BUSY_BACKOFF_MS << Math.min(attempt++, 10));
+                    Thread.sleep(Math.min(delay, left));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new DbException("interrupted waiting for the write lock", ie);
                 }
+                delay = Math.min(delay * 2, BACKOFF_MAX_MS);
             }
         }
     }
@@ -356,7 +361,7 @@ public final class Db implements Sql, AutoCloseable {
     }
 
     @FunctionalInterface
-    private interface ConnWork<T> {
+    interface ConnWork<T> {
         T run(Connection c) throws Exception;
     }
 
