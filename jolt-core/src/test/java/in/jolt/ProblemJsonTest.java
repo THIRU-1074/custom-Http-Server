@@ -42,7 +42,7 @@ class ProblemJsonTest {
                 .expect(418)
                 .header("Content-Type", PROBLEM)
                 .body(
-                        "{\"type\":\"about:blank\",\"title\":\"Unknown\",\"status\":418,"
+                        "{\"type\":\"about:blank\",\"title\":\"I'm a Teapot\",\"status\":418,"
                                 + "\"detail\":\"short and stout\"}");
     }
 

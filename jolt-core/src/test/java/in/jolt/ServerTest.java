@@ -693,7 +693,7 @@ class ServerTest {
         assertEquals(Duration.ofSeconds(5), c.readTimeout());
         assertEquals(Duration.ofSeconds(6), c.keepAliveTimeout());
         assertEquals("X", new String(c.jsonMapper().write(1), StandardCharsets.UTF_8));
-        assertEquals("Unknown", HttpStatus.reasonFor(299));
+        assertEquals("Success", HttpStatus.reasonFor(299));
         assertEquals("Not Found", HttpStatus.NOT_FOUND.reason());
         assertEquals(new HttpException(HttpStatus.NOT_FOUND, "x").status(), 404);
     }
