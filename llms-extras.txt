@@ -21,6 +21,12 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
 ## Routing
 Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the next route, then 404), /files/:name? (optional last param). Order: static, constrained, plain, wildcard. Bad regex, duplicate names or /files/:name? next to /files: IllegalArgumentException at registration.
 
+## Request
+req.queryAll("genre") returns every value in order (empty list if absent); queryAll("id", Long.class) converts like query(name, Class), 400 naming the parameter; query(name) stays the first value; also on Params.
+
+## Lifecycle
+app.onStart(Runnable) runs before listen binds the port (a throw aborts listen with IllegalStateException and runs the stop hooks); app.onStop(Runnable) runs on Server.close() and the closeOnShutdown hook after in-flight requests drain, once, in reverse order, each failure logged and skipped; app.lifecycle(start, stop) pairs them (stop runs after a failed start only if its start completed). Register before listen, else IllegalStateException.
+
 ## Security
 app.use(Sessions.signed(secret32+)) keeps a Session in an HMAC-SHA256 cookie (signed, not encrypted): Sessions.of(req).get/put/remove/clear/isNew; values String, finite number, boolean; 3 KB cap throws IllegalStateException; .maxAge(1h, renewed at half) .previous(oldKeys) .cookie(name); HttpOnly, SameSite=Lax, Secure per config; cookie set only on change.
 app.use(Csrf.protect()): POST/PUT/PATCH/DELETE with cookies need Sec-Fetch-Site same-origin|same-site|none, else Origin/Referer matching Host, else 403; cookieless API calls skip unless .strict(); .token(secret32) adds a signed double-submit token (csrf cookie == X-CSRF-Token header or _csrf form/multipart field; only same-origin|none; .token() unsigned is weaker); Csrf.token(req) for forms.
