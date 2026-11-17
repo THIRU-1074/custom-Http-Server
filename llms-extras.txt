@@ -37,7 +37,10 @@ RefreshTokens.of(jwt) (.accessTtl 15m, .refreshTtl 30d, .store(RefreshStore), .c
 
 ## Observability
 app.exposeMetrics() (opt-in, idempotent) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, final status after error mappers, latency histogram without streams, connections, streams, WebSocket gauges, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
-app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines.
+app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines. A valid W3C traceparent sets req.traceId(), logged as trace=.
+
+## MCP agents (jolt-mcp)
+McpOptions.agent(req -> (String) req.attr("user")) names the caller (null = "anonymous"). Every tools/call goes to .audit(Consumer<ToolCall>) (default: one INFO line on in.jolt.mcp); ToolCall has agent, client (User-Agent), tool, method, path, status, took, requestId, arguments (only with .auditArguments(true)). .budget("get_todos", 10, Duration.ofMinutes(1)) or .budget("*", ...) limits calls per agent; over budget the tool result is an error saying when to retry.
 
 ## Dev and tooling
 jolt-dev (dev only, dep jolt-dev): class DevMain{main(){Dev.run("app.Main",Path.of("target/classes"));}}; run mvn -q compile exec:exec -Dexec.executable=java "-Dexec.args=-cp %classpath app.DevMain" (not exec:java), recompile to restart; child gets JOLT_DEV=1; app.use(DevErrors.page(app)) first renders non-HttpException, unmapped errors as HTML only when JOLT_DEV or -Djolt.dev=true.
