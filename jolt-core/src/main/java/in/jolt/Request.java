@@ -12,8 +12,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** An incoming HTTP request. Created by the server; public so tests can build one. */
+/**
+ * An incoming HTTP request. Created by the server; public so tests can build one. A request is
+ * handled by one thread at a time; its lazily parsed views ({@code query}, {@code form}, {@code
+ * parts}) and attributes are not synchronized.
+ */
 public final class Request implements Params {
+
+    private static final class Defaults {
+        static final JoltConfig CONFIG = JoltConfig.defaults();
+    }
 
     private final String method;
     private final String path;
@@ -28,6 +36,10 @@ public final class Request implements Params {
     private Map<String, String> form;
     private final String remoteAddress;
     private App app;
+    private final String scheme;
+    private final String host;
+    private final JoltConfig config;
+    private List<Part> parts;
 
     public Request(
             String method,
@@ -48,7 +60,42 @@ public final class Request implements Params {
             byte[] body,
             JsonMapper mapper,
             String remoteAddress) {
+        this(method, path, rawQuery, headers, body, mapper, remoteAddress, null, null);
+    }
+
+    /** As above, with the scheme and host the server resolved; {@code null} means the defaults. */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress,
+            String scheme,
+            String host) {
+        this(method, path, rawQuery, headers, body, mapper, remoteAddress, scheme, host, null);
+    }
+
+    /**
+     * As above, with the server settings that bound {@link #parts()}; {@code null} means {@link
+     * JoltConfig#defaults()}.
+     */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress,
+            String scheme,
+            String host,
+            JoltConfig config) {
+        this.config = config;
         this.remoteAddress = remoteAddress;
+        this.scheme = scheme;
+        this.host = host;
         this.method = method;
         this.path = path;
         this.rawQuery = rawQuery == null ? "" : rawQuery;
@@ -112,6 +159,26 @@ public final class Request implements Params {
             form = parsePairs(new String(body, cs), "&", true, true, cs);
         }
         return Collections.unmodifiableMap(form);
+    }
+
+    /**
+     * Parts of a {@code multipart/form-data} body, in memory. Limits come from {@link
+     * JoltConfig#maxParts} and {@link JoltConfig#maxPartBytes}.
+     *
+     * @throws HttpException 415 for another content type, 413 over a limit, 400 if malformed
+     */
+    public List<Part> parts() {
+        String type = headers.getOrDefault("Content-Type", "");
+        int semi = type.indexOf(';');
+        String media = (semi < 0 ? type : type.substring(0, semi)).strip();
+        if (!media.equalsIgnoreCase("multipart/form-data")) {
+            throw new HttpException(
+                    HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Expected multipart/form-data");
+        }
+        if (parts == null) {
+            parts = Multipart.parse(type, body, config == null ? Defaults.CONFIG : config);
+        }
+        return parts;
     }
 
     private static Charset charset(String params) {
@@ -212,6 +279,16 @@ public final class Request implements Params {
     /** IP address of the connected peer, or {@code null} when unknown. */
     public String remoteAddress() {
         return remoteAddress;
+    }
+
+    /** {@code "http"} or {@code "https"}: the forwarded scheme from a trusted proxy, else http. */
+    public String scheme() {
+        return scheme == null ? "http" : scheme;
+    }
+
+    /** The forwarded host from a trusted proxy, else the {@code Host} header, or {@code null}. */
+    public String host() {
+        return host == null ? headers.get("Host") : host;
     }
 
     /** Per-request value set by middleware, or {@code null}. */

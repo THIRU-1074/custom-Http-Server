@@ -9,12 +9,22 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -26,18 +36,83 @@ public final class Json {
     private static final Pattern NUMBER =
             Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int MAX_DEPTH = 64;
+    private static final int MAX_EXPONENT = 400;
+    private static final Set<Class<?>> TEXT_TYPES =
+            Set.of(
+                    Instant.class,
+                    LocalDate.class,
+                    LocalDateTime.class,
+                    LocalTime.class,
+                    OffsetDateTime.class,
+                    ZonedDateTime.class,
+                    Duration.class,
+                    UUID.class);
+    private static final int UUID_LENGTH = 36;
     private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
 
+    /**
+     * A fractional or exponent number that keeps its text for exact BigDecimal/BigInteger targets.
+     */
+    private static final class Decimal extends Number {
+        private final String text;
+        private final double value;
+
+        Decimal(String text, double value) {
+            this.text = text;
+            this.value = value;
+        }
+
+        @Override
+        public int intValue() {
+            return (int) value;
+        }
+
+        @Override
+        public long longValue() {
+            return (long) value;
+        }
+
+        @Override
+        public float floatValue() {
+            return (float) value;
+        }
+
+        @Override
+        public double doubleValue() {
+            return value;
+        }
+
+        @Override
+        public String toString() {
+            return text;
+        }
+    }
+
     private final String src;
+    private final boolean exact;
     private int pos;
     private int depth;
 
-    private Json(String src) {
+    private Json(String src, boolean exact) {
         this.src = src;
+        this.exact = exact;
     }
 
     public static Object parse(String text) {
-        Json p = new Json(text);
+        return parse(text, false);
+    }
+
+    /**
+     * Parses {@code text} and binds it to {@code type}. Unlike {@link #parse}, decimal text is kept
+     * for {@code BigDecimal} and {@code BigInteger} targets; every other target sees {@code Double}
+     * as usual.
+     */
+    public static <T> T read(String text, Class<T> type) {
+        return bind(parse(text, true), type);
+    }
+
+    private static Object parse(String text, boolean exact) {
+        Json p = new Json(text, exact);
         p.skipWs();
         Object v = p.value();
         p.skipWs();
@@ -220,7 +295,8 @@ public final class Json {
                 BigInteger big = new BigInteger(s);
                 return big.bitLength() < 64 ? (Object) big.longValue() : big;
             }
-            return Double.parseDouble(s);
+            double d = Double.parseDouble(s);
+            return exact ? new Decimal(s, d) : (Object) d;
         } catch (NumberFormatException e) {
             pos = start;
             throw error();
@@ -236,6 +312,15 @@ public final class Json {
             case CharSequence s -> quote(s, sb);
             case Character c -> quote(c.toString(), sb);
             case Enum<?> e -> quote(e.name(), sb);
+            case Instant t -> quote(t.toString(), sb);
+            case LocalDate t -> quote(t.toString(), sb);
+            case LocalDateTime t -> quote(t.toString(), sb);
+            case UUID t -> quote(t.toString(), sb);
+            case LocalTime t -> quote(t.toString(), sb);
+            case OffsetDateTime t -> quote(t.toString(), sb);
+            case ZonedDateTime t -> quote(t.toString(), sb);
+            case Duration t -> quote(t.toString(), sb);
+            case Optional<?> o -> write(o.orElse(null), sb, depth);
             case Double d when d.isNaN() || d.isInfinite() -> sb.append("null");
             case Float f when f.isNaN() || f.isInfinite() -> sb.append("null");
             case Number n -> sb.append(n);
@@ -286,20 +371,26 @@ public final class Json {
 
     private static void writeRecord(Record r, StringBuilder sb, int depth) {
         sb.append('{');
-        RecordComponent[] comps = r.getClass().getRecordComponents();
-        for (int i = 0; i < comps.length; i++) {
-            if (i > 0) {
+        boolean first = true;
+        for (RecordComponent comp : r.getClass().getRecordComponents()) {
+            Object value;
+            try {
+                var accessor = comp.getAccessor();
+                accessor.setAccessible(true);
+                value = accessor.invoke(r);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalArgumentException("Cannot read " + comp.getName(), e);
+            }
+            if (value instanceof Optional<?> o && o.isEmpty()) {
+                continue;
+            }
+            if (!first) {
                 sb.append(',');
             }
-            quote(comps[i].getName(), sb);
+            first = false;
+            quote(comp.getName(), sb);
             sb.append(':');
-            try {
-                var accessor = comps[i].getAccessor();
-                accessor.setAccessible(true);
-                write(accessor.invoke(r), sb, depth + 1);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalArgumentException("Cannot read " + comps[i].getName(), e);
-            }
+            write(value, sb, depth + 1);
         }
         sb.append('}');
     }
@@ -334,11 +425,21 @@ public final class Json {
             return convert(v, tv.getBounds()[0], where);
         }
         Class<?> raw = rawClass(type);
+        if (raw == Optional.class) {
+            Type element =
+                    type instanceof ParameterizedType pt
+                            ? pt.getActualTypeArguments()[0]
+                            : Object.class;
+            return Optional.ofNullable(convert(v, element, where));
+        }
+        if (v instanceof Decimal d && raw != BigDecimal.class && raw != BigInteger.class) {
+            v = d.doubleValue();
+        }
         if (v == null) {
             return raw.isPrimitive() ? Array.get(Array.newInstance(raw, 1), 0) : null;
         }
         if (raw == Object.class) {
-            return v;
+            return plain(v);
         }
         if (raw == String.class) {
             if (v instanceof Map || v instanceof List) {
@@ -354,6 +455,9 @@ public final class Json {
         }
         if (Number.class.isAssignableFrom(wrap(raw))) {
             return number(v, wrap(raw), where);
+        }
+        if (TEXT_TYPES.contains(raw)) {
+            return text(raw, v, where);
         }
         if (raw.isEnum()) {
             try {
@@ -399,9 +503,49 @@ public final class Json {
             }
         }
         if (raw.isInstance(v)) {
-            return v;
+            return plain(v);
         }
         throw mismatch(where, raw.getSimpleName());
+    }
+
+    private static Object text(Class<?> raw, Object v, String where) {
+        if (!(v instanceof String s)) {
+            throw mismatch(where, "a string");
+        }
+        try {
+            if (raw == Instant.class) {
+                return Instant.parse(s);
+            } else if (raw == LocalDate.class) {
+                return LocalDate.parse(s);
+            } else if (raw == LocalDateTime.class) {
+                return LocalDateTime.parse(s);
+            } else if (raw == LocalTime.class) {
+                return LocalTime.parse(s);
+            } else if (raw == OffsetDateTime.class) {
+                return OffsetDateTime.parse(s);
+            } else if (raw == ZonedDateTime.class) {
+                return ZonedDateTime.parse(s);
+            } else if (raw == Duration.class) {
+                return Duration.parse(s);
+            } else if (s.length() == UUID_LENGTH) {
+                return UUID.fromString(s);
+            }
+        } catch (RuntimeException e) {
+            // reported below
+        }
+        throw mismatch(where, "a valid " + raw.getSimpleName());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object plain(Object v) {
+        if (v instanceof Map<?, ?> m) {
+            ((Map<String, Object>) m).replaceAll((k, x) -> plain(x));
+        } else if (v instanceof List<?> l) {
+            ((List<Object>) l).replaceAll(Json::plain);
+        } else if (v instanceof Decimal d) {
+            return d.doubleValue();
+        }
+        return v;
     }
 
     private static Collection<Object> newCollection(Class<?> raw) {
@@ -461,6 +605,12 @@ public final class Json {
         } else if (target == Float.class) {
             return n.floatValue();
         }
+        if (n instanceof Double d && !Double.isFinite(d)) {
+            throw mismatch(where, "a finite number");
+        }
+        if ((target == BigDecimal.class || target == BigInteger.class) && n instanceof Decimal) {
+            checkExponent(n.toString(), where);
+        }
         BigDecimal exact = new BigDecimal(n.toString());
         try {
             if (target == Integer.class) {
@@ -478,6 +628,18 @@ public final class Json {
             throw mismatch(where, "an integer in range for " + target.getSimpleName());
         }
         return target == BigDecimal.class ? exact : n;
+    }
+
+    private static void checkExponent(String text, String where) {
+        int e = Math.max(text.indexOf('e'), text.indexOf('E'));
+        if (e < 0) {
+            return;
+        }
+        String digits = text.substring(e + 1).replace("+", "").replace("-", "");
+        if (digits.length() > 4 || Integer.parseInt(digits) > MAX_EXPONENT) {
+            throw new IllegalArgumentException(
+                    "Exponent out of range (max " + MAX_EXPONENT + ") for " + where);
+        }
     }
 
     private static Class<?> wrap(Class<?> c) {
