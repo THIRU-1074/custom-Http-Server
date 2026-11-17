@@ -1,5 +1,6 @@
 package in.jolt;
 
+import in.jolt.internal.view.Views;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -182,6 +183,22 @@ public final class Response {
 
     public Response text(String s) {
         return send(s.getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
+    }
+
+    /**
+     * Renders the template {@code name} under the {@link App#views(Path) views root} as HTML.
+     * {@code {{x}}} is escaped, {@code {{{x}}}} is raw, dotted paths and {@code #each}, {@code #if}
+     * and {@code {{> partial}}} are supported.
+     *
+     * @throws IllegalStateException if no views root is configured
+     * @throws IllegalArgumentException if the template is missing, malformed or outside the root
+     */
+    public Response render(String name, Map<String, ?> model) {
+        Views views = req == null ? null : req.views();
+        if (views == null) {
+            throw new IllegalStateException("No views root: call app.views(root)");
+        }
+        return html(views.render(name, model));
     }
 
     public Response html(String s) {

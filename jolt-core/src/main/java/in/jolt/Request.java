@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.Codec;
+import in.jolt.internal.view.Views;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -194,6 +195,10 @@ public final class Request implements Params {
 
     List<BodyCodec> codecs() {
         return app == null ? List.of() : app.codecs();
+    }
+
+    Views views() {
+        return app == null ? null : app.views();
     }
 
     void app(App app) {

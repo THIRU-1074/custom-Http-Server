@@ -3,9 +3,11 @@ package in.jolt;
 import in.jolt.internal.http.ConnectionHandler;
 import in.jolt.internal.openapi.OpenApi;
 import in.jolt.internal.routing.Suggest;
+import in.jolt.internal.view.Views;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +24,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private record Entry(long order, ErrorMapper<?> mapper) {}
 
     private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
+    private volatile Views views;
     private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
 
@@ -115,6 +118,24 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         next.add(codec);
         codecs = List.copyOf(next);
         return this;
+    }
+
+    /** Serves {@code res.render(name, model)} from {@code .html} templates under {@code root}. */
+    public App views(Path root) {
+        return views(root, null);
+    }
+
+    /**
+     * As {@link #views(Path)}, wrapping every page in the template {@code layout}, which prints the
+     * page with {@code {{{content}}}}.
+     */
+    public App views(Path root, String layout) {
+        views = new Views(root, layout);
+        return this;
+    }
+
+    Views views() {
+        return views;
     }
 
     List<BodyCodec> codecs() {
