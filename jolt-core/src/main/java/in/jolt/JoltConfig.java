@@ -333,8 +333,15 @@ public record JoltConfig(
                 trustedProxies);
     }
 
-    /** Largest accepted multipart part, in bytes. Defaults to 1 MB; larger parts get 413. */
+    /**
+     * Largest accepted multipart part, in bytes. Defaults to 1 MB; larger parts get 413.
+     *
+     * @throws IllegalArgumentException if {@code v} is not positive
+     */
     public JoltConfig maxPartBytes(int v) {
+        if (v <= 0) {
+            throw new IllegalArgumentException("maxPartBytes must be positive, got: " + v);
+        }
         return new JoltConfig(
                 maxConnections,
                 maxHeaderBytes,
@@ -353,8 +360,15 @@ public record JoltConfig(
                 trustedProxies);
     }
 
-    /** Most parts accepted in one multipart body. Defaults to 10; more get 413. */
+    /**
+     * Most parts accepted in one multipart body. Defaults to 10; more get 413.
+     *
+     * @throws IllegalArgumentException if {@code v} is not positive
+     */
     public JoltConfig maxParts(int v) {
+        if (v <= 0) {
+            throw new IllegalArgumentException("maxParts must be positive, got: " + v);
+        }
         return new JoltConfig(
                 maxConnections,
                 maxHeaderBytes,

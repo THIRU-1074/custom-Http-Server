@@ -315,6 +315,24 @@ class MultipartTest {
     }
 
     @Test
+    void partLimitsMustBePositive() {
+        for (int bad : new int[] {0, -1, Integer.MIN_VALUE}) {
+            var parts =
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> JoltConfig.defaults().maxParts(bad));
+            assertEquals(true, parts.getMessage().contains("maxParts"), parts.getMessage());
+            var bytes =
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> JoltConfig.defaults().maxPartBytes(bad));
+            assertEquals(true, bytes.getMessage().contains("maxPartBytes"), bytes.getMessage());
+        }
+        assertEquals(1, JoltConfig.defaults().maxParts(1).maxParts());
+        assertEquals(1, JoltConfig.defaults().maxPartBytes(1).maxPartBytes());
+    }
+
+    @Test
     void bodyOverMaxBodyBytesGets413() {
         JoltConfig cfg = JoltConfig.defaults().maxBodyBytes(40);
         assertEquals(
