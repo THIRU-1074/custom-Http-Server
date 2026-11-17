@@ -89,6 +89,42 @@ class IntrospectionTest {
                 List.copyOf(((Map<String, Object>) paths.get("/users")).keySet()));
     }
 
+    record NewUser(String name, int age) {}
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void openApiDescribesTypedRequestBody() {
+        App app = Jolt.create();
+        app.post("/users", NewUser.class, (params, u) -> u);
+        Map<String, Object> doc = (Map<String, Object>) Json.parse(app.openApi());
+        Map<String, Object> post =
+                (Map<String, Object>)
+                        ((Map<String, Object>)
+                                        ((Map<String, Object>) doc.get("paths")).get("/users"))
+                                .get("post");
+        Map<String, Object> body = (Map<String, Object>) post.get("requestBody");
+        Map<String, Object> schema =
+                (Map<String, Object>)
+                        ((Map<String, Object>)
+                                        ((Map<String, Object>) body.get("content"))
+                                                .get("application/json"))
+                                .get("schema");
+        assertEquals(List.of("name", "age"), schema.get("required"));
+    }
+
+    @Test
+    void typedInputSurvivesMountingAndToolTagging() throws IOException {
+        Router sub = new Router();
+        sub.post("/users", NewUser.class, (params, u) -> u).tool("Create a user");
+        App app = Jolt.create();
+        app.use("/api", sub);
+        assertEquals(
+                new Route("POST", "/api/users", "Create a user", NewUser.class),
+                app.routes().get(0));
+        Reply r = get(app.exposeRoutes(), "/_jolt/routes");
+        assertTrue(r.text().contains("\"input\":\"NewUser\""), r.text());
+    }
+
     @Test
     void invalidJsonBodyReportsPosition() throws IOException {
         App app = Jolt.create();

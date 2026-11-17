@@ -47,6 +47,15 @@ public final class OpenApi {
             if (!params.isEmpty()) {
                 op.put("parameters", params);
             }
+            if (r.input() != null) {
+                op.put(
+                        "requestBody",
+                        Map.of(
+                                "required",
+                                true,
+                                "content",
+                                Map.of("application/json", Map.of("schema", r.inputSchema()))));
+            }
             op.put("responses", Map.of("200", Map.of("description", "OK")));
             paths.computeIfAbsent(sb.isEmpty() ? "/" : sb.toString(), k -> new LinkedHashMap<>())
                     .put(r.method().toLowerCase(Locale.ROOT), op);
