@@ -28,4 +28,9 @@ class TodoAppTest {
         http.delete("/todos/1").expect(204);
         http.delete("/todos/1").expect(404);
     }
+
+    @Test
+    void rejectsNonNumericId() {
+        http.delete("/todos/abc").expect(400);
+    }
 }

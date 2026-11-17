@@ -27,7 +27,12 @@ public class Main {
         });
 
         app.delete("/todos/:id", (req, res) -> {
-            int id = Integer.parseInt(req.param("id"));
+            int id;
+            try {
+                id = Integer.parseInt(req.param("id"));
+            } catch (NumberFormatException e) {
+                throw new HttpException(400, "Invalid todo id");
+            }
             if (todos.remove(id) == null) throw new HttpException(404, "Todo " + id + " not found");
             res.status(204).send(new byte[0]);
         });
