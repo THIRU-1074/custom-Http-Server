@@ -1,12 +1,11 @@
 package in.jolt;
 
+import in.jolt.internal.limit.FixedWindow;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 
@@ -70,36 +69,12 @@ public final class RateLimit {
         } catch (ArithmeticException e) {
             throw new IllegalArgumentException("window is too large", e);
         }
-        Map<String, long[]> table =
-                new LinkedHashMap<>(16, 0.75f, true) {
-                    @Override
-                    protected boolean removeEldestEntry(Map.Entry<String, long[]> eldest) {
-                        return size() > maxKeys;
-                    }
-                };
+        FixedWindow counter = new FixedWindow(maxRequests, windowNanos, maxKeys, nanos);
         return (req, res, next) -> {
             String key = keyFn.apply(req);
-            if (key == null) {
-                key = "unknown";
-            }
-            long now = nanos.getAsLong();
-            long retryNanos = -1;
-            synchronized (table) {
-                long[] entry = table.get(key);
-                if (entry == null) {
-                    table.put(key, new long[] {now, 1});
-                } else if (now - entry[0] >= windowNanos) {
-                    entry[0] = now;
-                    entry[1] = 1;
-                } else if (entry[1] < maxRequests) {
-                    entry[1]++;
-                } else {
-                    retryNanos = windowNanos - (now - entry[0]);
-                }
-            }
+            long retryNanos = counter.acquire(key == null ? "unknown" : key);
             if (retryNanos >= 0) {
-                long seconds = Math.max(1, (retryNanos + 999_999_999L) / 1_000_000_000L);
-                res.header("Retry-After", String.valueOf(seconds))
+                res.header("Retry-After", String.valueOf(FixedWindow.seconds(retryNanos)))
                         .status(429)
                         .text("Too Many Requests");
                 return;
