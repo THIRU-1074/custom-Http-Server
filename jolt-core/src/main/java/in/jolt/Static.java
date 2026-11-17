@@ -54,8 +54,16 @@ public final class Static implements Middleware {
             return;
         }
         String rel = path.substring(prefix.length());
-        if (send(res, rel)
-                || send(res, rel.endsWith("/") ? rel + "index.html" : rel + "/index.html")) {
+        if (send(res, rel)) {
+            return;
+        }
+        boolean slash = rel.endsWith("/");
+        String index = slash ? rel + "index.html" : rel + "/index.html";
+        if (!slash && exists(index)) {
+            res.redirect(301, withSlash(req));
+            return;
+        }
+        if (send(res, index)) {
             return;
         }
         if (spaIndex == null || !navigation(req, rel)) {
@@ -69,6 +77,28 @@ public final class Static implements Middleware {
                 throw e;
             }
         }
+    }
+
+    private boolean exists(String rel) {
+        try {
+            Response.locate(root, rel);
+            return true;
+        } catch (HttpException e) {
+            if (e.status() != HttpStatus.NOT_FOUND.code()) {
+                throw e;
+            }
+            return false;
+        }
+    }
+
+    private static String withSlash(Request req) {
+        String path = "/" + req.path().replaceFirst("^/+", "") + "/";
+        try {
+            path = new java.net.URI(null, null, path, null).getRawPath();
+        } catch (java.net.URISyntaxException e) {
+            throw new HttpException(HttpStatus.BAD_REQUEST, "Bad path");
+        }
+        return req.rawQuery().isEmpty() ? path : path + "?" + req.rawQuery();
     }
 
     private boolean send(Response res, String rel) {

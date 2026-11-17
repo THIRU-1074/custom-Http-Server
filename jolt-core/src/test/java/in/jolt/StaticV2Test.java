@@ -61,11 +61,29 @@ class StaticV2Test {
         Files.writeString(root.resolve("docs").resolve("index.html"), "docs");
         Files.createDirectory(root.resolve("bare"));
         var t = client(root);
-        t.get("/s").expect(200).body("home");
+        t.get("/s").expect(301).header("Location", "/s/");
         t.get("/s/").expect(200).body("home");
         t.get("/s/docs/").expect(200).body("docs");
-        t.get("/s/docs").expect(200).body("docs");
+        t.get("/s/docs").expect(301).header("Location", "/s/docs/");
+        t.get("/s/docs?a=1&b=%C3%A9").expect(301).header("Location", "/s/docs/?a=1&b=%C3%A9");
         t.get("/s/bare/").expect(404);
+    }
+
+    @Test
+    void directoryRedirectsStayOnSiteAndKeepGuarantees(@TempDir Path root) throws IOException {
+        Files.createDirectory(root.resolve("docs"));
+        Files.writeString(root.resolve("docs").resolve("index.html"), "docs");
+        Files.createDirectory(root.resolve(".git"));
+        Files.writeString(root.resolve(".git").resolve("index.html"), "git");
+        Files.createDirectory(root.resolve("my docs"));
+        Files.writeString(root.resolve("my docs").resolve("index.html"), "x");
+        App app = Jolt.create();
+        app.use(Static.serve(root));
+        var t = JoltTest.of(app);
+        t.get("//docs").expect(301).header("Location", "/docs/");
+        t.get("/my%20docs").expect(301).header("Location", "/my%20docs/");
+        t.get("/.git").expect(404);
+        t.get("/%2e%2e").expect(403);
     }
 
     @Test

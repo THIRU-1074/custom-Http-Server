@@ -197,6 +197,10 @@ public final class Request implements Params {
         return app == null ? List.of() : app.codecs();
     }
 
+    String rawQuery() {
+        return rawQuery;
+    }
+
     Views views() {
         return app == null ? null : app.views();
     }

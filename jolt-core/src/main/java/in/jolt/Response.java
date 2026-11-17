@@ -281,6 +281,10 @@ public final class Response {
      *     unreachable or has a dotfile segment, 413 if it exceeds the size cap
      */
     public Response sendFile(Path root, String relative) {
+        return sendFile(locate(root, relative));
+    }
+
+    static Path locate(Path root, String relative) {
         if (relative.indexOf('\0') >= 0) {
             throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
         }
@@ -306,7 +310,7 @@ public final class Response {
             if (!Files.isRegularFile(real)) {
                 throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
             }
-            return sendFile(real);
+            return real;
         } catch (java.nio.file.InvalidPathException | IOException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         }
