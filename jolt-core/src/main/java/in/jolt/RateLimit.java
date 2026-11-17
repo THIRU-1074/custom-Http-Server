@@ -20,7 +20,8 @@ public final class RateLimit {
     /**
      * Allows {@code maxRequests} per remote address in each fixed {@code window}; further requests
      * get 429 with {@code Retry-After}. IPv6 is keyed by its /64 prefix and IPv4-mapped IPv6 as the
-     * IPv4. Behind a proxy use {@link #perKey}. At most 10000 addresses are tracked.
+     * IPv4. Behind a proxy set {@link JoltConfig#trustProxy} so the forwarded address is used, or
+     * use {@link #perKey}. At most 10000 addresses are tracked.
      */
     public static Middleware perIp(int maxRequests, Duration window) {
         return perIp(maxRequests, window, MAX_TRACKED_ADDRESSES);

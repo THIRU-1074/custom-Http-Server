@@ -1,6 +1,7 @@
 package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.TrustedProxies;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -23,6 +24,7 @@ public final class Server implements AutoCloseable {
 
     private final JoltConfig config;
     private final ConnectionHandler.Dispatcher dispatcher;
+    private final TrustedProxies trusted;
     private final ServerSocket serverSocket;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore permits;
@@ -44,6 +46,7 @@ public final class Server implements AutoCloseable {
     Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {
         this.config = config;
         this.dispatcher = dispatcher;
+        this.trusted = TrustedProxies.from(config);
         this.permits = new Semaphore(config.maxConnections());
         this.serverSocket = serverSocket;
         this.acceptor = new Thread(this::acceptLoop, "jolt-acceptor");
@@ -100,7 +103,7 @@ public final class Server implements AutoCloseable {
                 ConnectionHandler.reject(socket, config);
                 continue;
             }
-            var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing);
+            var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing, trusted);
             live.add(handler);
             try {
                 executor.execute(

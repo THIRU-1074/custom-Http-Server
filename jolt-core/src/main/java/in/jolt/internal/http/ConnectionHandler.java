@@ -34,14 +34,20 @@ public final class ConnectionHandler implements Runnable {
     private final JoltConfig config;
     private final Dispatcher dispatcher;
     private final BooleanSupplier draining;
+    private final TrustedProxies trusted;
     private volatile boolean idle;
 
     public ConnectionHandler(
-            Socket socket, JoltConfig config, Dispatcher dispatcher, BooleanSupplier draining) {
+            Socket socket,
+            JoltConfig config,
+            Dispatcher dispatcher,
+            BooleanSupplier draining,
+            TrustedProxies trusted) {
         this.socket = socket;
         this.config = config;
         this.dispatcher = dispatcher;
         this.draining = draining;
+        this.trusted = trusted;
     }
 
     /** Closes the socket if no request is in flight. */
@@ -91,7 +97,7 @@ public final class ConnectionHandler implements Runnable {
 
                 HttpParser.ParsedRequest parsed;
                 try {
-                    parsed = HttpParser.parse(in, limits);
+                    parsed = HttpParser.parse(in, limits, out);
                 } catch (HttpException e) {
                     writeError(out, config, e.status(), e.getMessage());
                     return;
@@ -120,16 +126,15 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private Response handle(HttpParser.ParsedRequest p) {
-        var mapper = config.jsonMapper();
         var peer = socket.getInetAddress();
         Request req =
-                new Request(
+                trusted.request(
+                        config,
                         p.method(),
                         p.path(),
                         p.rawQuery(),
                         p.headers(),
                         p.body(),
-                        mapper,
                         peer == null ? null : peer.getHostAddress());
         return respond(dispatcher, config, req);
     }
