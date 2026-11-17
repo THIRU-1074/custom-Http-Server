@@ -2,12 +2,16 @@ package in.jolt.test;
 
 import in.jolt.App;
 import in.jolt.HttpStatus;
+import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.internal.http.Codec;
 import in.jolt.internal.http.ConnectionHandler;
 import in.jolt.internal.http.TrustedProxies;
 import in.jolt.internal.json.Json;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -20,6 +24,11 @@ import java.util.TreeMap;
  * }</pre>
  *
  * Assertion failures throw {@link AssertionError}, so any test framework reports them.
+ *
+ * <p>{@code res.stream()} and {@code res.sse()} write to an in-memory sink: the handler runs to
+ * completion on the calling thread, then {@code bytes()}, {@code text()} and {@code events()} read
+ * what it streamed. Use {@link Call#maxEvents} or {@link Call#timeout} for handlers that stream
+ * until the client leaves.
  */
 public final class JoltTest {
 
@@ -90,6 +99,8 @@ public final class JoltTest {
         private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         private byte[] body = new byte[0];
         private String remoteAddress = "127.0.0.1";
+        private int maxEvents;
+        private Duration timeout;
 
         private Call(
                 App app,
@@ -112,6 +123,30 @@ public final class JoltTest {
         /** Sets the peer address the handler sees; defaults to {@code 127.0.0.1}. */
         public Call remoteAddress(String address) {
             remoteAddress = address;
+            return this;
+        }
+
+        /**
+         * Ends the stream after {@code n} SSE events: the next write throws {@link IOException}, as
+         * for a client that left. A handler that blocks without writing needs {@link #timeout}.
+         */
+        public Call maxEvents(int n) {
+            if (n < 1) {
+                throw new IllegalArgumentException("maxEvents must be positive");
+            }
+            maxEvents = n;
+            return this;
+        }
+
+        /**
+         * Gives the handler at most {@code limit} to finish, then drops the stream and interrupts
+         * the handler. The handler runs on its own virtual thread when this is set.
+         */
+        public Call timeout(Duration limit) {
+            if (limit.isZero() || limit.isNegative()) {
+                throw new IllegalArgumentException("timeout must be positive");
+            }
+            timeout = limit;
             return this;
         }
 
@@ -167,13 +202,50 @@ public final class JoltTest {
                             body,
                             remoteAddress,
                             false);
-            Response res = ConnectionHandler.respond(app, app.config(), req);
+            var capture = new StreamCapture(maxEvents, method.equals("HEAD"));
+            Response res = run(capture.dispatcher(app), req, capture);
             if (jar != null) {
                 res.headers().stream()
                         .filter(h -> h.getKey().equalsIgnoreCase("Set-Cookie"))
                         .forEach(h -> store(jar, h.getValue()));
             }
-            return new Result(app, method + " " + path, res);
+            return new Result(app, method + " " + path, res, capture);
+        }
+
+        private Response run(
+                ConnectionHandler.Dispatcher dispatcher, Request req, StreamCapture capture) {
+            if (timeout == null) {
+                return ConnectionHandler.respond(dispatcher, app.config(), req);
+            }
+            var done = new java.util.concurrent.CompletableFuture<Response>();
+            Thread worker =
+                    Thread.startVirtualThread(
+                            () -> {
+                                try {
+                                    done.complete(
+                                            ConnectionHandler.respond(
+                                                    dispatcher, app.config(), req));
+                                } catch (Throwable t) {
+                                    done.completeExceptionally(t);
+                                }
+                            });
+            try {
+                return done.get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                capture.end();
+                worker.interrupt();
+                Response partial = capture.response();
+                if (partial == null) {
+                    throw new AssertionError(
+                            method + " " + path + ": no response within " + timeout);
+                }
+                return partial;
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new AssertionError(method + " " + path + ": " + e.getCause(), e.getCause());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(method + " " + path + ": interrupted");
+            }
         }
 
         private static boolean pastDate(String date) {
@@ -210,6 +282,9 @@ public final class JoltTest {
         }
     }
 
+    /** One Server-Sent Event; {@code name} and {@code id} are {@code null} when not sent. */
+    public record Event(String name, String data, String id) {}
+
     /** A response with fluent assertions; each assertion returns this result. */
     public static final class Result {
         private static final Object MISSING = new Object();
@@ -217,11 +292,15 @@ public final class JoltTest {
         private final App app;
         private final String what;
         private final Response res;
+        private final byte[] streamed;
+        private final Throwable streamError;
 
-        private Result(App app, String what, Response res) {
+        private Result(App app, String what, Response res, StreamCapture capture) {
             this.app = app;
             this.what = what;
             this.res = res;
+            this.streamed = capture.streaming() ? capture.bytes() : null;
+            this.streamError = capture.failure();
         }
 
         public int status() {
@@ -237,16 +316,69 @@ public final class JoltTest {
                     .orElse(null);
         }
 
+        /** The body, or everything streamed by {@code res.stream()} or {@code res.sse()}. */
         public byte[] bytes() {
-            return res.body();
+            return streamed != null ? streamed : res.body();
         }
 
         public String text() {
-            return new String(res.body(), StandardCharsets.UTF_8);
+            return new String(bytes(), StandardCharsets.UTF_8);
         }
 
         public <T> T json(Class<T> type) {
-            return app.config().jsonMapper().read(res.body(), type);
+            return app.config().jsonMapper().read(bytes(), type);
+        }
+
+        /**
+         * The exception a handler threw after it began streaming, else {@code null}. Such a
+         * response keeps its status and the output written so far.
+         */
+        public Throwable streamError() {
+            return streamError;
+        }
+
+        /**
+         * The complete Server-Sent Events in the body: {@code data:} lines joined by newlines,
+         * comments and {@code retry:} ignored, events without data and a final unterminated event
+         * dropped.
+         */
+        public List<Event> events() {
+            List<Event> events = new ArrayList<>();
+            String[] lines = text().split("\r\n|\r|\n", -1);
+            String name = null;
+            String id = null;
+            StringBuilder data = null;
+            for (int i = 0; i < lines.length - 1; i++) {
+                String line = lines[i];
+                if (line.isEmpty()) {
+                    if (data != null) {
+                        events.add(new Event(name, data.toString(), id));
+                    }
+                    name = null;
+                    id = null;
+                    data = null;
+                    continue;
+                }
+                if (line.charAt(0) == ':') {
+                    continue;
+                }
+                int colon = line.indexOf(':');
+                String field = colon < 0 ? line : line.substring(0, colon);
+                String value = colon < 0 ? "" : line.substring(colon + 1);
+                if (value.startsWith(" ")) {
+                    value = value.substring(1);
+                }
+                switch (field) {
+                    case "event" -> name = value;
+                    case "id" -> id = value;
+                    case "data" -> {
+                        data = data == null ? new StringBuilder() : data.append('\n');
+                        data.append(value);
+                    }
+                    default -> {}
+                }
+            }
+            return events;
         }
 
         public Result status(int expected) {

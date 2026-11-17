@@ -12,7 +12,7 @@ app.listen(8080);
 
 ## Install
 
-Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Central, see [Roadmap](#roadmap)). Current release: `v0.3.1`.
+Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Central, see [Roadmap](#roadmap)). Current release: `v0.4.0`.
 
 ```xml
 <repositories>
@@ -26,7 +26,7 @@ Jolt is published through [JitPack](https://jitpack.io) (not yet on Maven Centra
   <dependency>
     <groupId>com.github.THIRU-1074.custom-Http-Server</groupId>
     <artifactId>jolt-core</artifactId>
-    <version>v0.3.1</version>
+    <version>v0.4.0</version>
   </dependency>
 </dependencies>
 ```
@@ -60,7 +60,7 @@ Full API sheets: [llms.txt](llms.txt) (core) and [llms-extras.txt](llms-extras.t
 | Response | `json/text/html/send/sendFile/redirect`, cookies, ETag and cache headers, static files with Range, gzip, HTML templating, content negotiation and codecs, problem+json (opt-in) |
 | Security | Request limits, request-smuggling and header-injection rejection, path traversal protection, loopback bind by default, security headers, CORS, CSRF, signed sessions, rate limiting |
 | Auth (`jolt-auth`) | JWT, Basic, role checks, PBKDF2 `PasswordHasher`, refresh tokens with reuse detection |
-| Transport | HTTP/1.1 keep-alive and pipelining on virtual threads, TLS 1.2+, Expect: 100-continue, trusted-proxy headers, SSE and streaming, WebSocket |
+| Transport | HTTP/1.1 keep-alive and pipelining on virtual threads, TLS 1.2+, Expect: 100-continue, trusted-proxy headers, SSE (event ids, Last-Event-ID) and streaming, WebSocket, pub/sub `Hub` for both |
 | Observability | Request logger, request IDs, opt-in `/_jolt/health` and `/_jolt/metrics` (Prometheus text), route listing and OpenAPI |
 | Tooling | `JoltTest` in-memory client, `jolt-dev` restart runner, archetype, `JoltConfig.fromEnv()` |
 
@@ -149,6 +149,6 @@ Process so far: test-first features, atomic commits, ADRs 0001-0011 (two files s
 - Performance was measured on one Windows machine; Linux and macOS are unmeasured.
 - The WebSocket implementation has not been run against the Autobahn conformance suite.
 - TLS with client certificates is untested.
-- `JoltTest` cannot stream or upgrade to WebSocket; use a real socket for those.
+- `JoltTest` captures streams and SSE in memory but cannot upgrade to WebSocket; use a real socket for that.
 - Sessions are signed, not encrypted.
 - Published only through JitPack.

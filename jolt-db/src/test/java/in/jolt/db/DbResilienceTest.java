@@ -33,6 +33,8 @@ class DbResilienceTest {
         volatile boolean invalid;
         volatile boolean failStatements;
         volatile boolean failRollback;
+        volatile String sqlState;
+        volatile boolean dropOnFail;
         final AtomicInteger closes = new AtomicInteger();
         Connection proxy;
 
@@ -55,7 +57,10 @@ class DbResilienceTest {
                                             if (f.invalid) return false;
                                         }
                                         case "prepareStatement" -> {
-                                            if (f.failStatements) throw new SQLException("broken");
+                                            if (f.failStatements) {
+                                                if (f.dropOnFail) f.invalid = true;
+                                                throw new SQLException("broken", f.sqlState);
+                                            }
                                             return recording(
                                                     (PreparedStatement) call(f.real, m, a));
                                         }
@@ -152,10 +157,37 @@ class DbResilienceTest {
     void sqlFailureEvictsConnection() {
         Flaky first = opened.get(0);
         first.failStatements = true;
+        first.dropOnFail = true;
         assertThrows(DbException.class, () -> db.query("select 1", rs -> 1));
         assertEquals(1, first.closes.get());
         assertEquals(1, db.query("select 1", rs -> 1).size());
         assertEquals(2, opened.size());
+    }
+
+    @Test
+    void ordinarySqlErrorsKeepHealthyConnections() {
+        db.update("create unique index if not exists t_name on t(name)");
+        db.update("insert into t(name) values (?)", "dup");
+        for (int i = 0; i < 50; i++) {
+            assertThrows(
+                    DbException.class, () -> db.update("insert into t(name) values (?)", "dup"));
+            assertThrows(
+                    DbException.class,
+                    () ->
+                            db.inTransaction(
+                                    tx -> tx.update("insert into t(name) values (?)", "dup")));
+        }
+        assertTrue(opened.size() <= 2, "opened " + opened.size());
+        assertEquals(0, db.inUse());
+    }
+
+    @Test
+    void connectionErrorStateEvicts() {
+        Flaky first = opened.get(0);
+        first.failStatements = true;
+        first.sqlState = "08006";
+        assertThrows(DbException.class, () -> db.query("select 1", rs -> 1));
+        assertEquals(1, first.closes.get());
     }
 
     @Test

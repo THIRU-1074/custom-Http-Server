@@ -1,0 +1,420 @@
+package in.jolt.db;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import in.jolt.db.Migrations.Applied;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.DriverManager;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class MigrationsTest {
+
+    @TempDir Path dir;
+    Path sql;
+    Db db;
+
+    @BeforeEach
+    void open() throws IOException {
+        sql = Files.createDirectory(dir.resolve("sql"));
+        db = Db.open("jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=10000");
+    }
+
+    @AfterEach
+    void close() {
+        db.close();
+    }
+
+    void file(String name, String body) throws IOException {
+        Files.writeString(sql.resolve(name), body);
+    }
+
+    int count(String table) {
+        return db.queryOne("select count(*) from " + table, rs -> rs.getInt(1)).orElseThrow();
+    }
+
+    @Test
+    void appliesInNumericOrderAndRecordsHistory() throws IOException {
+        file("V10__ten.sql", "create table ten(id integer);");
+        file("V2__two.sql", "create table two(id integer); insert into two values (1);");
+        file("notes.txt", "ignored");
+
+        List<Applied> done = Migrations.run(db, sql);
+
+        assertEquals(List.of(new Applied(2, "two"), new Applied(10, "ten")), done);
+        assertEquals(1, count("two"));
+        var rows =
+                db.query(
+                        "select version, name, checksum, applied_at from jolt_schema_history"
+                                + " order by version",
+                        rs -> rs.getLong(1) + rs.getString(2) + rs.getString(3).length());
+        assertEquals(List.of("2two64", "10ten64"), rows);
+        assertEquals(0, db.inUse());
+    }
+
+    @Test
+    void secondRunAppliesNothingAndNewFilesAreAdded() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        assertEquals(1, Migrations.run(db, sql).size());
+        assertEquals(List.of(), Migrations.run(db, sql));
+        file("V2__b.sql", "create table b(id integer);");
+        assertEquals(List.of(new Applied(2, "b")), Migrations.run(db, sql));
+    }
+
+    @Test
+    void splitsOnSemicolonsOutsideQuotesAndComments() throws IOException {
+        file(
+                "V1__x.sql",
+                "create table t(v text); -- one; two\n"
+                        + "insert into t values ('a;b');\n"
+                        + "/* skip; this */ insert into t values (\"c;d\");\n"
+                        + "insert into t values ('it''s');;\n"
+                        + "-- trailing");
+        Migrations.run(db, sql);
+        assertEquals(
+                List.of("a;b", "c;d", "it's"),
+                db.query("select v from t order by rowid", rs -> rs.getString(1)));
+    }
+
+    @Test
+    void statementsRunAsPlainSqlWithLiteralQuestionMarks() throws IOException {
+        file(
+                "V1__plain.sql",
+                "create table t(v text);\n"
+                        + "insert into t values ('what?');\n"
+                        + "insert into t values ('say \"\"hi\"\"; it''s ok');\n"
+                        + "select count(*) from t;\n");
+        Migrations.run(db, sql);
+        assertEquals(
+                List.of("what?", "say \"\"hi\"\"; it's ok"),
+                db.query("select v from t order by rowid", rs -> rs.getString(1)));
+    }
+
+    @Test
+    void splitKeepsDollarQuotedBodies() {
+        assertEquals(
+                List.of(
+                        "create function f() returns int as $$ select 1; select 2; $$ language sql",
+                        "create function g() as $body$ a; $$ b; $body$",
+                        "select $1 + 1",
+                        "select 2"),
+                Migrations.split(
+                        "create function f() returns int as $$ select 1; select 2; $$ language sql;\n"
+                                + "create function g() as $body$ a; $$ b; $body$;\n"
+                                + "select $1 + 1; select 2;"));
+    }
+
+    @Test
+    void customDelimiterAllowsTriggers() throws IOException {
+        file(
+                "V1__trigger.sql",
+                "create table a(id integer);\n"
+                        + "create table log(n integer);\n"
+                        + "-- jolt:delimiter //\n"
+                        + "create trigger t after insert on a begin\n"
+                        + "  insert into log values (new.id);\n"
+                        + "end//\n"
+                        + "-- jolt:delimiter ;\n"
+                        + "insert into a values (7);\n");
+        Migrations.run(db, sql);
+        assertEquals(7, db.queryOne("select n from log", rs -> rs.getInt(1)).orElseThrow());
+    }
+
+    @Test
+    void changedAppliedFileFailsNamingIt() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        file("V1__a.sql", "create table a(id integer, x text);");
+        var e = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(e.getMessage().contains("V1__a.sql"), e.getMessage());
+        assertTrue(e.getMessage().contains("changed"), e.getMessage());
+    }
+
+    @Test
+    void lineEndingsBomAndTrailingWhitespaceDoNotChangeTheChecksum() throws IOException {
+        file("V1__a.sql", "﻿create table a(id integer);\r\ncreate table b(id integer);\r\n  \r\n");
+        assertEquals(1, Migrations.run(db, sql).size());
+        file("V1__a.sql", "create table a(id integer);\ncreate table b(id integer);");
+        assertEquals(List.of(), Migrations.run(db, sql));
+        file("V1__a.sql", "create table a(id integer);\rcreate table b(id integer);\n\n");
+        assertEquals(List.of(), Migrations.run(db, sql));
+    }
+
+    @Test
+    void duplicateVersionFails() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        file("V01__b.sql", "create table b(id integer);");
+        var e = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(e.getMessage().contains("duplicate version 1"), e.getMessage());
+        assertTrue(e.getMessage().contains("V1__a.sql"), e.getMessage());
+        assertTrue(e.getMessage().contains("V01__b.sql"), e.getMessage());
+    }
+
+    @Test
+    void outOfOrderFileFails() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        file("V3__c.sql", "create table c(id integer);");
+        Migrations.run(db, sql);
+        file("V2__b.sql", "create table b(id integer);");
+        var e = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(e.getMessage().contains("V2__b.sql"), e.getMessage());
+        assertTrue(e.getMessage().contains("out of order"), e.getMessage());
+    }
+
+    @Test
+    void badNameFails() throws IOException {
+        file("V1_a.sql", "create table a(id integer);");
+        var e = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(e.getMessage().contains("V1_a.sql"), e.getMessage());
+    }
+
+    @Test
+    void failingFileRollsBackAndNamesItself() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        file("V2__b.sql", "create table b(id integer); insert into nope values (1);");
+        var e = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(e.getMessage().contains("V2__b.sql"), e.getMessage());
+        assertEquals(1, count("jolt_schema_history"));
+        assertEquals(
+                0, db.query("select name from sqlite_master where name = 'b'", rs -> 1).size());
+        assertEquals(0, db.inUse());
+    }
+
+    @Test
+    void historyRecordsSuccess() throws IOException {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        assertEquals(
+                List.of(true),
+                db.query("select success from jolt_schema_history", rs -> rs.getBoolean(1)));
+    }
+
+    @Test
+    void halfAppliedFileStopsLaterRuns() throws IOException {
+        file("V1__a.sql", "create table a(id integer); commit; insert into nope values (1);");
+        var first = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertTrue(first.getMessage().contains("V1__a.sql"), first.getMessage());
+        assertEquals(
+                List.of(false),
+                db.query("select success from jolt_schema_history", rs -> rs.getBoolean(1)));
+        file("V1__a.sql", "create table a(id integer);");
+        var next = assertThrows(DbException.class, () -> Migrations.run(db, sql));
+        assertEquals(
+                "migration V1 failed earlier and left a partial state; repair manually, then"
+                        + " delete the history row",
+                next.getMessage());
+        assertEquals(0, db.inUse());
+    }
+
+    void holdLockWhileAnotherRunnerApplies(String body, CountDownLatch held, long holdMs) {
+        db.inTransaction(
+                TxMode.IMMEDIATE,
+                tx -> {
+                    tx.update(
+                            "insert into jolt_schema_history(version, name, checksum, success,"
+                                    + " applied_at) values (2, 'b', ?, ?, 'now')",
+                            Migrations.checksum(Migrations.normalize(body)),
+                            true);
+                    held.countDown();
+                    Thread.sleep(holdMs);
+                    return null;
+                });
+    }
+
+    @Test
+    void runnerWaitsForTheLockThenSkipsAppliedVersions() throws Exception {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        String body = "create table b(id integer);";
+        file("V2__b.sql", body);
+        CountDownLatch held = new CountDownLatch(1);
+        Thread holder =
+                Thread.ofVirtual().start(() -> holdLockWhileAnotherRunnerApplies(body, held, 1000));
+        held.await();
+        try (Db other = Db.open("jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=0")) {
+            assertEquals(List.of(), Migrations.run(other, sql, Duration.ofSeconds(10)));
+        }
+        holder.join();
+        assertEquals(2, count("jolt_schema_history"));
+    }
+
+    @Test
+    void runnerFailsWhenTheLockOutlastsItsTimeout() throws Exception {
+        file("V1__a.sql", "create table a(id integer);");
+        Migrations.run(db, sql);
+        String body = "create table b(id integer);";
+        file("V2__b.sql", body);
+        CountDownLatch held = new CountDownLatch(1);
+        Thread holder =
+                Thread.ofVirtual().start(() -> holdLockWhileAnotherRunnerApplies(body, held, 1000));
+        held.await();
+        try (Db other = Db.open("jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=0")) {
+            var e =
+                    assertThrows(
+                            DbException.class,
+                            () -> Migrations.run(other, sql, Duration.ofMillis(200)));
+            assertTrue(e.getMessage().contains("busy"), e.getMessage());
+            assertEquals(0, other.inUse());
+        }
+        holder.join();
+    }
+
+    @Test
+    void missingDirectoryFails() {
+        assertThrows(DbException.class, () -> Migrations.run(db, dir.resolve("missing")));
+    }
+
+    @Test
+    void appliesFromClasspathFolder() {
+        List<Applied> done = Migrations.runClasspath(db, "db/migrations");
+        assertEquals(List.of(new Applied(1, "movie"), new Applied(2, "seat")), done);
+        assertEquals(1, count("movie"));
+        assertEquals(List.of(), Migrations.runClasspath(db, "/db/migrations/"));
+    }
+
+    @Test
+    void missingClasspathFolderFails() {
+        assertThrows(DbException.class, () -> Migrations.runClasspath(db, "db/nothing"));
+    }
+
+    Path jar(String name, boolean dirEntry) throws IOException {
+        Path jar = dir.resolve(name);
+        try (OutputStream out = Files.newOutputStream(jar);
+                JarOutputStream jos = new JarOutputStream(out)) {
+            if (dirEntry) {
+                jos.putNextEntry(new JarEntry("mig/"));
+                jos.closeEntry();
+            }
+            jos.putNextEntry(new JarEntry("mig/V1__j.sql"));
+            jos.write("create table j(id integer);".getBytes());
+            jos.closeEntry();
+            jos.putNextEntry(new JarEntry("mig/deeper/V9__no.sql"));
+            jos.write("create table no(id integer);".getBytes());
+            jos.closeEntry();
+        }
+        return jar;
+    }
+
+    List<Applied> withLoader(ClassLoader cl, String folder) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        // DriverManager discovers drivers once per JVM through the context loader of its first
+        // caller. Without this, a parent-less loader here hides sqlite-jdbc from every later test
+        // whenever this test happens to run first (it does on Linux CI).
+        DriverManager.getDrivers();
+        try {
+            Thread.currentThread().setContextClassLoader(cl);
+            return Migrations.runClasspath(db, folder);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void appliesFromJarWithAndWithoutDirectoryEntries() throws Exception {
+        try (URLClassLoader cl =
+                new URLClassLoader(new URL[] {jar("m.jar", false).toUri().toURL()}, null)) {
+            assertEquals(List.of(new Applied(1, "j")), withLoader(cl, "mig"));
+        }
+        try (URLClassLoader cl =
+                new URLClassLoader(new URL[] {jar("d.jar", true).toUri().toURL()}, null)) {
+            assertEquals(List.of(), withLoader(cl, "mig"));
+        }
+    }
+
+    @Test
+    void identicalFilesOnTwoRootsApplyOnceAndConflictsFail() throws Exception {
+        Path a = Files.createDirectories(dir.resolve("a/mig"));
+        Path b = Files.createDirectories(dir.resolve("b/mig"));
+        Files.writeString(a.resolve("V1__x.sql"), "create table x(id integer);");
+        Files.writeString(b.resolve("V1__x.sql"), "create table x(id integer);\r\n");
+        URL[] roots = {dir.resolve("a").toUri().toURL(), dir.resolve("b").toUri().toURL()};
+        try (URLClassLoader cl = new URLClassLoader(roots, null)) {
+            assertEquals(List.of(new Applied(1, "x")), withLoader(cl, "mig"));
+        }
+        Files.writeString(b.resolve("V2__y.sql"), "create table y(id integer);");
+        Files.writeString(a.resolve("V2__y.sql"), "create table z(id integer);");
+        try (URLClassLoader cl = new URLClassLoader(roots, null)) {
+            var e = assertThrows(DbException.class, () -> withLoader(cl, "mig"));
+            assertTrue(e.getMessage().contains("duplicate version 2"), e.getMessage());
+        }
+    }
+
+    @Test
+    void unsupportedSchemeIsRejected() {
+        URLStreamHandler handler =
+                new URLStreamHandler() {
+                    @Override
+                    protected URLConnection openConnection(URL u) throws IOException {
+                        throw new IOException("unreachable");
+                    }
+                };
+        ClassLoader odd =
+                new ClassLoader(null) {
+                    @Override
+                    public Enumeration<URL> getResources(String name) throws IOException {
+                        return Collections.enumeration(
+                                List.of(URL.of(URI.create("weird:/mig"), handler)));
+                    }
+                };
+        var e = assertThrows(IllegalArgumentException.class, () -> withLoader(odd, "mig"));
+        assertTrue(e.getMessage().contains("weird"), e.getMessage());
+    }
+
+    @Test
+    void concurrentStartsApplyEachVersionOnce() throws Exception {
+        file("V1__a.sql", "create table a(id integer); create table counter(n integer);");
+        file("V2__b.sql", "insert into counter values (1);");
+        file("V3__c.sql", "insert into counter values (1);");
+        String url = "jdbc:sqlite:" + dir.resolve("m.db") + "?busy_timeout=10000";
+        db.query("select 1", rs -> 1);
+        CyclicBarrier start = new CyclicBarrier(2);
+        List<Db> dbs =
+                List.of(
+                        Db.open(url, 2, Duration.ofSeconds(5)),
+                        Db.open(url, 2, Duration.ofSeconds(5)));
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<List<Applied>>> runs = new ArrayList<>();
+            for (Db d : dbs) {
+                runs.add(
+                        pool.submit(
+                                () -> {
+                                    start.await();
+                                    return Migrations.run(d, sql);
+                                }));
+            }
+            int applied = 0;
+            for (var f : runs) applied += f.get().size();
+            assertEquals(3, applied);
+            assertEquals(3, count("jolt_schema_history"));
+            assertEquals(2, count("counter"));
+        } finally {
+            pool.shutdownNow();
+            dbs.forEach(Db::close);
+        }
+    }
+}

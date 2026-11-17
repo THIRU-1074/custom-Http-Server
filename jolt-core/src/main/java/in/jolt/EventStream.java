@@ -22,7 +22,24 @@ public final class EventStream implements AutoCloseable {
      * @throws IllegalArgumentException if {@code name} contains a line break
      */
     public EventStream event(String name, String data) throws IOException {
+        return event(null, name, data);
+    }
+
+    /**
+     * Sends an event with an {@code id:} line, which the client returns as {@code Last-Event-ID}
+     * when it reconnects; {@code id} and {@code name} may be {@code null}.
+     *
+     * @throws IllegalArgumentException if {@code id} contains CR, LF or NUL, or {@code name} a line
+     *     break
+     */
+    public EventStream event(String id, String name, String data) throws IOException {
         StringBuilder sb = new StringBuilder();
+        if (id != null) {
+            if (id.indexOf('\r') >= 0 || id.indexOf('\n') >= 0 || id.indexOf('\0') >= 0) {
+                throw new IllegalArgumentException("Event id must not contain CR, LF or NUL");
+            }
+            sb.append("id: ").append(id).append('\n');
+        }
         if (name != null) {
             if (name.indexOf('\r') >= 0 || name.indexOf('\n') >= 0) {
                 throw new IllegalArgumentException("Event name must not contain a line break");

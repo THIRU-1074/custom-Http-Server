@@ -1,15 +1,13 @@
 package in.jolt;
 
 import in.jolt.internal.http.Live;
+import in.jolt.internal.http.Resources;
+import in.jolt.internal.http.Resources.Resource;
 import in.jolt.internal.view.Views;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -101,8 +99,8 @@ public final class Response {
     /**
      * Commits the status and headers now and returns a body writer; the connection closes when the
      * handler returns. The body is chunked, or delimited by the close for HTTP/1.0 clients. For a
-     * HEAD request the head is sent and writes are discarded. Only on a live connection, not in
-     * {@code JoltTest}.
+     * HEAD request the head is sent and writes are discarded. {@code JoltTest} captures the output
+     * in memory.
      *
      * @throws IllegalStateException if a body was already set, the status allows no body (1xx, 204,
      *     304) or there is no live connection
@@ -132,6 +130,10 @@ public final class Response {
 
     Live live() {
         return live;
+    }
+
+    JsonMapper mapper() {
+        return mapper;
     }
 
     /** True once {@link #stream} or {@link #sse} has committed the response. */
@@ -293,38 +295,7 @@ public final class Response {
      */
     public Response sendFile(Path file) {
         try {
-            if (!Files.isRegularFile(file)) {
-                throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
-            }
-            long size = Files.size(file);
-            if (size > maxFileBytes) {
-                throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
-            }
-            Instant modified = Files.getLastModifiedTime(file).toInstant();
-            String tag = "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"";
-            String type = contentType(file);
-            if (notModified(modified, tag)) {
-                validators(tag, modified);
-                status = 304;
-                return send(new byte[0], type);
-            }
-            long[] range = range(size, tag, modified);
-            if (range != null && range.length == 0) {
-                validators(tag, modified);
-                status = 416;
-                header("Content-Range", "bytes */" + size);
-                return send(new byte[0], type);
-            }
-            byte[] data =
-                    range == null
-                            ? Files.readAllBytes(file)
-                            : readRange(file, range[0], (int) (range[1] - range[0] + 1));
-            validators(tag, modified);
-            if (range != null) {
-                status = 206;
-                header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
-            }
-            return send(data, type);
+            return sendResource(Resources.file(file));
         } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         } catch (IOException e) {
@@ -340,38 +311,44 @@ public final class Response {
      *     unreachable or has a dotfile segment, 413 if it exceeds the size cap
      */
     public Response sendFile(Path root, String relative) {
-        return sendFile(locate(root, relative));
+        return sendResource(Resources.dir(root).find(relative));
     }
 
-    static Path locate(Path root, String relative) {
-        if (relative.indexOf('\0') >= 0) {
-            throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
-        }
+    Response sendResource(Resource file) {
         try {
-            Path base = root.toRealPath();
-            String rel = relative;
-            while (rel.startsWith("/") || rel.startsWith("\\")) {
-                rel = rel.substring(1);
+            long size = file.size();
+            if (size > maxFileBytes) {
+                throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
             }
-            Path target = base.resolve(rel).normalize();
-            if (!target.startsWith(base)) {
-                throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
+            Instant modified = file.modified();
+            String tag = file.tag();
+            String type = contentType(file.name());
+            if (notModified(modified, tag)) {
+                validators(tag, modified);
+                status = 304;
+                return send(new byte[0], type);
             }
-            for (Path segment : base.relativize(target)) {
-                if (segment.toString().startsWith(".")) {
-                    throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
-                }
+            long[] range = range(size, tag, modified);
+            if (range != null && range.length == 0) {
+                validators(tag, modified);
+                status = 416;
+                header("Content-Range", "bytes */" + size);
+                return send(new byte[0], type);
             }
-            Path real = target.toRealPath();
-            if (!real.startsWith(base)) {
-                throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
+            byte[] data =
+                    range == null
+                            ? file.body().read(0, Math.toIntExact(size))
+                            : file.body().read(range[0], (int) (range[1] - range[0] + 1));
+            validators(tag, modified);
+            if (range != null) {
+                status = 206;
+                header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
             }
-            if (!Files.isRegularFile(real)) {
-                throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
-            }
-            return real;
-        } catch (java.nio.file.InvalidPathException | IOException e) {
+            return send(data, type);
+        } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
+        } catch (IOException e) {
+            throw new HttpException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot read file");
         }
     }
 
@@ -395,7 +372,9 @@ public final class Response {
 
     private void validators(String tag, Instant modified) {
         header("ETag", tag);
-        header("Last-Modified", HTTP_DATE.format(modified));
+        if (modified != null) {
+            header("Last-Modified", HTTP_DATE.format(modified));
+        }
         header("Accept-Ranges", "bytes");
     }
 
@@ -407,6 +386,9 @@ public final class Response {
         v = v.strip();
         if (v.startsWith("\"") || v.startsWith("W/")) {
             return v.equals(tag);
+        }
+        if (modified == null) {
+            return false;
         }
         try {
             Instant t = DateTimeFormatter.RFC_1123_DATE_TIME.parse(v, Instant::from);
@@ -462,17 +444,6 @@ public final class Response {
             }
         }
         return Long.parseLong(digits);
-    }
-
-    private static byte[] readRange(Path file, long start, int length) throws IOException {
-        try (var ch = FileChannel.open(file, StandardOpenOption.READ)) {
-            ByteBuffer buf = ByteBuffer.allocate(length);
-            ch.position(start);
-            while (buf.hasRemaining() && ch.read(buf) >= 0) {
-                // keep reading until the range is full or the file ends
-            }
-            return buf.array();
-        }
     }
 
     private boolean notModified(Instant lastModified, String tag) {
@@ -626,8 +597,8 @@ public final class Response {
         return this;
     }
 
-    private static String contentType(Path file) {
-        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+    private static String contentType(String fileName) {
+        String name = fileName.toLowerCase(Locale.ROOT);
         int dot = name.lastIndexOf('.');
         return switch (dot < 0 ? "" : name.substring(dot + 1)) {
             case "html", "htm" -> "text/html; charset=utf-8";

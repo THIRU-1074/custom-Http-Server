@@ -1,5 +1,6 @@
 package in.jolt;
 
+import in.jolt.internal.http.Resources;
 import java.nio.file.Path;
 
 /**
@@ -9,10 +10,10 @@ import java.nio.file.Path;
 public final class Static implements Middleware {
 
     private final String prefix;
-    private final Path root;
+    private final Resources root;
     private final String spaIndex;
 
-    private Static(String prefix, Path root, String spaIndex) {
+    private Static(String prefix, Resources root, String spaIndex) {
         this.prefix = prefix;
         this.root = root;
         this.spaIndex = spaIndex;
@@ -28,11 +29,33 @@ public final class Static implements Middleware {
      * is answered 403; unknown files fall through to the next handler.
      */
     public static Static serve(String urlPrefix, Path root) {
-        String prefix =
-                urlPrefix.endsWith("/")
-                        ? urlPrefix.substring(0, urlPrefix.length() - 1)
-                        : urlPrefix;
-        return new Static(prefix, root, null);
+        return new Static(trim(urlPrefix), Resources.dir(root), null);
+    }
+
+    /**
+     * Serves class-path resources under {@code root} (for example {@code "/static"}) from the
+     * context class loader, from exploded classes or a jar, with the same rules as {@link #serve}.
+     */
+    public static Static classpath(String root) {
+        return classpath("", root);
+    }
+
+    /** As {@link #classpath(String)} for paths below {@code urlPrefix}. */
+    public static Static classpath(String urlPrefix, String root) {
+        return classpath(urlPrefix, root, Thread.currentThread().getContextClassLoader());
+    }
+
+    /**
+     * As {@link #classpath(String, String)} with an explicit class loader.
+     *
+     * @throws IllegalArgumentException if {@code root} is empty or has a dot or illegal segment
+     */
+    public static Static classpath(String urlPrefix, String root, ClassLoader loader) {
+        return new Static(trim(urlPrefix), Resources.classpath(root, loader), null);
+    }
+
+    private static String trim(String urlPrefix) {
+        return urlPrefix.endsWith("/") ? urlPrefix.substring(0, urlPrefix.length() - 1) : urlPrefix;
     }
 
     /**
@@ -81,7 +104,7 @@ public final class Static implements Middleware {
 
     private boolean exists(String rel) {
         try {
-            Response.locate(root, rel);
+            root.find(rel);
             return true;
         } catch (HttpException e) {
             if (e.status() != HttpStatus.NOT_FOUND.code()) {
@@ -103,7 +126,7 @@ public final class Static implements Middleware {
 
     private boolean send(Response res, String rel) {
         try {
-            res.sendFile(root, rel);
+            res.sendResource(root.find(rel));
             return true;
         } catch (HttpException e) {
             if (e.status() != HttpStatus.NOT_FOUND.code()) {
