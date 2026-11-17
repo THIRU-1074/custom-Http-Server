@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import in.jolt.HttpException;
 import in.jolt.JoltConfig;
 import in.jolt.Middleware;
 import in.jolt.Request;
@@ -40,6 +41,15 @@ class AuthTest {
         AtomicBoolean called = new AtomicBoolean();
         mw.handle(req, res, () -> called.set(true));
         return called.get();
+    }
+
+    private static int rejected(Middleware mw, Request req, Response res) {
+        AtomicBoolean called = new AtomicBoolean();
+        HttpException e =
+                assertThrows(
+                        HttpException.class, () -> mw.handle(req, res, () -> called.set(true)));
+        assertFalse(called.get());
+        return e.status();
     }
 
     private static String basic(String creds) {
@@ -82,8 +92,7 @@ class AuthTest {
                     "Bearer " + forged
                 }) {
             Response res = res();
-            assertFalse(run(auth.middleware(), req(header), res), String.valueOf(header));
-            assertEquals(401, res.statusCode());
+            assertEquals(401, rejected(auth.middleware(), req(header), res), header);
             assertTrue(res.headers().stream().anyMatch(h -> h.getKey().equals("WWW-Authenticate")));
         }
     }
@@ -165,8 +174,7 @@ class AuthTest {
                         .sign(com.auth0.jwt.algorithms.Algorithm.none());
         for (String token : new String[] {noExp, hs512, none}) {
             Response res = res();
-            assertFalse(run(auth.middleware(), req("Bearer " + token), res));
-            assertEquals(401, res.statusCode());
+            assertEquals(401, rejected(auth.middleware(), req("Bearer " + token), res));
         }
     }
 
@@ -187,8 +195,7 @@ class AuthTest {
                 }) {
             Response res = res();
             Request r = req(header);
-            assertFalse(run(mw, r, res), String.valueOf(header));
-            assertEquals(401, res.statusCode());
+            assertEquals(401, rejected(mw, r, res), header);
             assertNull(r.attr("user"));
         }
     }

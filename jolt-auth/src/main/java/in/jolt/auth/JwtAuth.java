@@ -6,7 +6,10 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import in.jolt.HttpException;
+import in.jolt.HttpStatus;
 import in.jolt.Middleware;
+import in.jolt.Response;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -81,28 +84,29 @@ public final class JwtAuth {
 
     /**
      * Requires {@code Authorization: Bearer <token>}. On success sets request attributes {@code
-     * user} (the subject) and {@code claims} (a {@code Map<String, Object>}); otherwise responds
-     * 401.
+     * user} (the subject) and {@code claims} (a {@code Map<String, Object>}); otherwise sets {@code
+     * WWW-Authenticate: Bearer} and throws {@link HttpException} 401.
      */
     public Middleware middleware() {
         return (req, res, next) -> {
             String header = req.header("Authorization");
             if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                res.header("WWW-Authenticate", "Bearer").status(401).text("Missing bearer token");
-                return;
+                throw unauthorized(res, "Missing bearer token");
             }
             DecodedJWT jwt;
             try {
                 jwt = verifier.verify(header.substring(7).trim());
             } catch (JWTVerificationException e) {
-                res.header("WWW-Authenticate", "Bearer")
-                        .status(401)
-                        .text("Invalid or expired token");
-                return;
+                throw unauthorized(res, "Invalid or expired token");
             }
             req.attr("user", jwt.getSubject()).attr("claims", claims(jwt));
             next.run();
         };
+    }
+
+    private static HttpException unauthorized(Response res, String message) {
+        res.header("WWW-Authenticate", "Bearer");
+        return new HttpException(HttpStatus.UNAUTHORIZED, message);
     }
 
     private static Map<String, Object> claims(DecodedJWT jwt) {
