@@ -18,6 +18,7 @@ app.use(Sessions.signed(secret32+)) keeps a Session in an HMAC-SHA256 cookie (si
 app.use(Csrf.protect()): POST/PUT/PATCH/DELETE with cookies need Sec-Fetch-Site same-origin|same-site|none, else Origin/Referer matching Host, else 403; cookieless API calls skip unless .strict(); .token() adds double-submit (csrf cookie == X-CSRF-Token header or _csrf form field); Csrf.token(req) for forms.
 
 ## Auth
+RefreshTokens.of(jwt) (.accessTtl 15m, .refreshTtl 30d, .store(RefreshStore), .claims(subject->map), .onRevoke((subject,family)->..)): issue(subject), refresh(token) rotates (opaque 256-bit token, SHA-256 hash stored); reuse revokes the family; failures throw HttpException 401; revoke(token), revokeAll(subject).
 
 ## Observability
 app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines.
