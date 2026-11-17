@@ -1,4 +1,4 @@
-# ADR 0014: Webhook signature verification middleware
+# ADR 0017: Webhook signature verification middleware
 
 ## Status
 Accepted.
