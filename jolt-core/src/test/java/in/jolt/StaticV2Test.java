@@ -142,6 +142,21 @@ class StaticV2Test {
     }
 
     @Test
+    void handlerThrown404sAreNotReplacedByTheShell(@TempDir Path root) throws IOException {
+        Files.writeString(root.resolve("index.html"), "shell");
+        App app = Jolt.create();
+        app.use("/s", Static.serve("/s", root).spaFallback("index.html"));
+        app.get(
+                "/s/gone",
+                (req, res) -> {
+                    throw new HttpException(404, "Todo 7 not found");
+                });
+        var t = JoltTest.of(app);
+        t.get("/s/gone").header("Accept", "text/html").expect(404).body("Todo 7 not found");
+        t.get("/s/other").header("Accept", "text/html").expect(200).body("shell");
+    }
+
+    @Test
     void spaFallbackIsOffByDefaultAndNeedsTheFile(@TempDir Path root) throws IOException {
         Files.writeString(root.resolve("index.html"), "shell");
         client(root).get("/s/users/42").header("Accept", "text/html").expect(404);

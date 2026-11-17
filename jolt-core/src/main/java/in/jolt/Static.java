@@ -65,7 +65,7 @@ public final class Static implements Middleware {
         try {
             next.run();
         } catch (HttpException e) {
-            if (e.status() != HttpStatus.NOT_FOUND.code() || !send(res, "/" + spaIndex)) {
+            if (!(e instanceof App.NoRoute) || !send(res, "/" + spaIndex)) {
                 throw e;
             }
         }

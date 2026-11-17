@@ -19,6 +19,12 @@ import java.util.concurrent.atomic.AtomicLong;
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
 
+    static final class NoRoute extends HttpException {
+        NoRoute(String message) {
+            super(HttpStatus.NOT_FOUND, message);
+        }
+    }
+
     private final JoltConfig config;
 
     private record Entry(long order, ErrorMapper<?> mapper) {}
@@ -51,8 +57,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
                 req.path(),
                 () -> {
                     String hint = Suggest.nearest(routes(), req.method(), req.path());
-                    throw new HttpException(
-                            HttpStatus.NOT_FOUND,
+                    throw new NoRoute(
                             "No route "
                                     + req.method()
                                     + " "
