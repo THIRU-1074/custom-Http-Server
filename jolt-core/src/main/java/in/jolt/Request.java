@@ -324,6 +324,10 @@ public final class Request implements Params {
         return headers.get("Last-Event-ID");
     }
 
+    JsonMapper mapper() {
+        return mapper;
+    }
+
     /** Per-request value set by middleware, or {@code null}. */
     public Object attr(String name) {
         return attributes.get(name);

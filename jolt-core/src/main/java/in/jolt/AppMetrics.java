@@ -79,6 +79,10 @@ public final class AppMetrics {
         return c;
     }
 
+    void counter(String name, String help, Counter c) {
+        register(name, help, Map.of(), new Series("", c, null), true);
+    }
+
     /**
      * Registers a gauge read on every scrape. A supplier that throws is left out of that scrape.
      *
