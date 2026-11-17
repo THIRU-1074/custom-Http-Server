@@ -14,6 +14,7 @@ config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Fo
 Path patterns: /users/:id(\d+) (regex, full match; a miss falls through to the next route, then 404), /files/:name? (optional last param). Order: static, constrained, plain, wildcard. Bad regex or duplicate names: IllegalArgumentException at registration.
 
 ## Security
+app.use(Sessions.signed(secret32+)) keeps a Session in an HMAC-SHA256 cookie (signed, not encrypted): Sessions.of(req).get/put/remove/clear/isNew; values String, finite number, boolean; 3 KB cap throws IllegalStateException; .maxAge(1h, renewed at half) .previous(oldKeys) .cookie(name); HttpOnly, SameSite=Lax, Secure per config; cookie set only on change.
 
 ## Auth
 
