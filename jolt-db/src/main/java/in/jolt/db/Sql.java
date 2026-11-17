@@ -17,7 +17,7 @@ public interface Sql {
     /** Runs an insert, update or delete and returns the affected row count. */
     int update(String sql, Object... args);
 
-    /** Runs an insert and returns its generated numeric key, if the driver reports one. */
+    /** Returns the first numeric generated key; empty if none, or if nothing was inserted. */
     Optional<Long> insert(String sql, Object... args);
 
     /** Runs one prepared statement for every row of arguments and returns the per-row counts. */

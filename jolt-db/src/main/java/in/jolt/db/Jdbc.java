@@ -41,11 +41,14 @@ final class Jdbc {
     static Optional<Long> insert(Connection c, int timeout, String sql, Object[] args)
             throws SQLException {
         try (PreparedStatement ps = bind(c, timeout, sql, args, true)) {
-            ps.executeUpdate();
+            if (ps.executeUpdate() == 0) return Optional.empty();
             try (var keys = ps.getGeneratedKeys()) {
                 if (!keys.next()) return Optional.empty();
-                long key = keys.getLong(1);
-                return keys.wasNull() ? Optional.empty() : Optional.of(key);
+                int columns = keys.getMetaData().getColumnCount();
+                for (int i = 1; i <= columns; i++) {
+                    if (keys.getObject(i) instanceof Number n) return Optional.of(n.longValue());
+                }
+                return Optional.empty();
             }
         }
     }

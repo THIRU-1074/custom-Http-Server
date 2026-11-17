@@ -276,6 +276,104 @@ class BookingTest {
     }
 
     @Test
+    void updateExpectingOnDbRollsBackWhenCountDiffers() {
+        db.update("insert into seats(id, status, version) values (2, 'FREE', 0), (3, 'FREE', 0)");
+        assertThrows(
+                OptimisticLockException.class,
+                () ->
+                        db.updateExpecting(
+                                "update seats set status = 'GONE' where status = 'FREE'", 1));
+        assertEquals(0, db.query("select id from seats where status = 'GONE'", rs -> 1).size());
+        db.updateExpecting("update seats set status = 'GONE' where id = ?", 1, 2);
+        assertEquals(0, db.inUse());
+    }
+
+    @Test
+    void insertThatInsertsNothingReturnsEmpty() {
+        assertEquals(Optional.of(1L), db.insert("insert or ignore into t(name) values (?)", "a"));
+        assertEquals(Optional.empty(), db.insert("insert or ignore into t(name) values (?)", "a"));
+    }
+
+    @Test
+    void insertWithoutNumericKeyReturnsEmpty() {
+        Db text =
+                Db.open(
+                        () -> textKeyConnection(DriverManager.getConnection(url)),
+                        1,
+                        Duration.ofSeconds(1));
+        try (text) {
+            assertEquals(Optional.empty(), text.insert("insert into t(name) values (?)", "k"));
+        }
+    }
+
+    Connection textKeyConnection(Connection real) {
+        return proxy(
+                Connection.class,
+                (m, a) -> {
+                    Object r = DbResilienceTest.call(real, m, a);
+                    if (!m.getName().equals("prepareStatement") || a.length != 2) return r;
+                    return proxy(
+                            java.sql.PreparedStatement.class,
+                            (m2, a2) -> {
+                                if (!m2.getName().equals("getGeneratedKeys")) {
+                                    return DbResilienceTest.call(r, m2, a2);
+                                }
+                                return proxy(
+                                        java.sql.ResultSet.class,
+                                        (m3, a3) ->
+                                                switch (m3.getName()) {
+                                                    case "next" -> true;
+                                                    case "getObject" -> "abc";
+                                                    case "getMetaData" ->
+                                                            proxy(
+                                                                    java.sql.ResultSetMetaData
+                                                                            .class,
+                                                                    (m4, a4) -> 1);
+                                                    default -> null;
+                                                });
+                            });
+                });
+    }
+
+    interface Handler {
+        Object call(java.lang.reflect.Method m, Object[] a) throws Throwable;
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> T proxy(Class<T> type, Handler h) {
+        return (T)
+                Proxy.newProxyInstance(
+                        BookingTest.class.getClassLoader(),
+                        new Class<?>[] {type},
+                        (p, m, a) -> h.call(m, a));
+    }
+
+    @Test
+    void txViewFailsFastAfterTheTransactionEnded() {
+        Sql[] captured = new Sql[1];
+        db.inTransaction(
+                tx -> {
+                    captured[0] = tx;
+                    return null;
+                });
+        Sql tx = captured[0];
+        String msg = "transaction already ended";
+        List<Runnable> calls =
+                List.of(
+                        () -> tx.query("select 1", rs -> 1),
+                        () -> tx.queryOne("select 1", rs -> 1),
+                        () -> tx.update("delete from t"),
+                        () -> tx.insert("insert into t(name) values ('x')"),
+                        () -> tx.batch("insert into t(name) values (?)", List.of()),
+                        () -> tx.updateExpecting("delete from t", 0));
+        for (Runnable call : calls) {
+            var e = assertThrows(IllegalStateException.class, call::run);
+            assertEquals(msg, e.getMessage());
+        }
+        assertEquals(0, db.inUse());
+    }
+
+    @Test
     void twoThreadsBookTheSameSeatOnce() throws Exception {
         assertEquals(1, race(2));
     }

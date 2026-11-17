@@ -109,7 +109,18 @@ public final class Db implements Sql, AutoCloseable {
 
     /** Like {@link #batch(String, List)}, sending {@code chunk} rows per round trip. */
     public int[] batch(String sql, List<Object[]> rows, int chunk) {
-        return inTransaction(tx -> ((ConnectionSql) tx).batch(sql, rows, chunk));
+        int t = queryTimeoutSeconds;
+        return transact(TxMode.DEFERRED, c -> Jdbc.batch(c, t, sql, rows, chunk));
+    }
+
+    /** Runs in its own transaction and rolls back when the count differs. */
+    @Override
+    public void updateExpecting(String sql, int expectedRows, Object... args) {
+        inTransaction(
+                tx -> {
+                    tx.updateExpecting(sql, expectedRows, args);
+                    return null;
+                });
     }
 
     /** Sets how often a busy or locked write lock is retried, 5 by default. Zero disables it. */
@@ -134,6 +145,20 @@ public final class Db implements Sql, AutoCloseable {
      * databases behave as DEFERRED.
      */
     public <T> T inTransaction(TxMode mode, Tx<T> tx) {
+        int t = queryTimeoutSeconds;
+        return transact(
+                mode,
+                c -> {
+                    ConnectionSql view = new ConnectionSql(c, t);
+                    try {
+                        return tx.run(view);
+                    } finally {
+                        view.end();
+                    }
+                });
+    }
+
+    private <T> T transact(TxMode mode, ConnWork<T> work) {
         Connection c = acquire();
         boolean broken = false;
         boolean manual = false;
@@ -143,12 +168,12 @@ public final class Db implements Sql, AutoCloseable {
             if (manual) beginImmediate(c);
             else c.setAutoCommit(false);
             begun = true;
-            T result = tx.run(new ConnectionSql(c, queryTimeoutSeconds));
+            T result = work.run(c);
             if (manual) exec(c, "COMMIT");
             else c.commit();
             return result;
         } catch (Throwable e) {
-            broken = manual ? begun && !rollbackManual(c, e) : !rollback(c, e);
+            broken = (!manual || begun) && !rollback(c, manual, e);
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             if (e instanceof RuntimeException re) throw re;
             if (e instanceof Error err) throw err;
@@ -294,19 +319,10 @@ public final class Db implements Sql, AutoCloseable {
         }
     }
 
-    private static boolean rollbackManual(Connection c, Throwable cause) {
+    private static boolean rollback(Connection c, boolean manual, Throwable cause) {
         try {
-            exec(c, "ROLLBACK");
-            return true;
-        } catch (SQLException e) {
-            cause.addSuppressed(e);
-            return false;
-        }
-    }
-
-    private static boolean rollback(Connection c, Throwable cause) {
-        try {
-            c.rollback();
+            if (manual) exec(c, "ROLLBACK");
+            else c.rollback();
             return true;
         } catch (SQLException e) {
             cause.addSuppressed(e);
@@ -327,7 +343,25 @@ public final class Db implements Sql, AutoCloseable {
         T apply(Connection c) throws SQLException;
     }
 
-    private record ConnectionSql(Connection c, int timeout) implements Sql {
+    @FunctionalInterface
+    private interface ConnWork<T> {
+        T run(Connection c) throws Exception;
+    }
+
+    private static final class ConnectionSql implements Sql {
+        private final Connection c;
+        private final int timeout;
+        private volatile boolean ended;
+
+        ConnectionSql(Connection c, int timeout) {
+            this.c = c;
+            this.timeout = timeout;
+        }
+
+        void end() {
+            ended = true;
+        }
+
         @Override
         public <T> List<T> query(String sql, RowMapper<T> mapper, Object... args) {
             return wrap(() -> Jdbc.query(c, timeout, sql, mapper, args));
@@ -350,14 +384,11 @@ public final class Db implements Sql, AutoCloseable {
 
         @Override
         public int[] batch(String sql, List<Object[]> rows) {
-            return batch(sql, rows, DEFAULT_BATCH_CHUNK);
+            return wrap(() -> Jdbc.batch(c, timeout, sql, rows, DEFAULT_BATCH_CHUNK));
         }
 
-        int[] batch(String sql, List<Object[]> rows, int chunk) {
-            return wrap(() -> Jdbc.batch(c, timeout, sql, rows, chunk));
-        }
-
-        private static <T> T wrap(SqlSupplier<T> s) {
+        private <T> T wrap(SqlSupplier<T> s) {
+            if (ended) throw new IllegalStateException("transaction already ended");
             try {
                 return s.get();
             } catch (SQLException e) {
