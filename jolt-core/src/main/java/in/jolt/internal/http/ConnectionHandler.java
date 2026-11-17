@@ -75,6 +75,9 @@ public final class ConnectionHandler implements Runnable {
             for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
                 socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());
                 idle = true;
+                if (draining.getAsBoolean()) {
+                    return;
+                }
                 in.mark(1);
                 int first;
                 try {
