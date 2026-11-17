@@ -3,7 +3,9 @@ package in.jolt;
 import in.jolt.internal.http.Replies;
 import in.jolt.internal.routing.RouteTrie;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -213,18 +215,38 @@ public class Router {
     private Router input(Class<?> in) {
         int last = defs.size() - 1;
         Route r = defs.get(last);
-        defs.set(last, new Route(r.method(), r.path(), r.tool(), in));
+        defs.set(last, new Route(r.method(), r.path(), r.tool(), in, r.hints()));
         return this;
     }
 
     /** Tags the most recently registered route as an MCP tool with this description. */
     public Router tool(String description) {
+        return tool(description, new ToolHint[0]);
+    }
+
+    /**
+     * Tags the last route as an MCP tool with {@code hints}. Without READ_ONLY, DESTRUCTIVE or
+     * IDEMPOTENT, the method decides: GET/HEAD read-only, DELETE destructive, PUT idempotent.
+     */
+    public Router tool(String description, ToolHint... hints) {
         if (defs.isEmpty()) {
             throw new IllegalStateException("tool() must follow a route registration");
         }
         int last = defs.size() - 1;
         Route r = defs.get(last);
-        defs.set(last, new Route(r.method(), r.path(), description, r.input()));
+        EnumSet<ToolHint> set = EnumSet.noneOf(ToolHint.class);
+        set.addAll(Arrays.asList(hints));
+        if (!set.contains(ToolHint.READ_ONLY)
+                && !set.contains(ToolHint.DESTRUCTIVE)
+                && !set.contains(ToolHint.IDEMPOTENT)) {
+            switch (r.method()) {
+                case "GET", "HEAD" -> set.add(ToolHint.READ_ONLY);
+                case "DELETE" -> set.add(ToolHint.DESTRUCTIVE);
+                case "PUT" -> set.add(ToolHint.IDEMPOTENT);
+                default -> {}
+            }
+        }
+        defs.set(last, new Route(r.method(), r.path(), description, r.input(), set));
         return this;
     }
 

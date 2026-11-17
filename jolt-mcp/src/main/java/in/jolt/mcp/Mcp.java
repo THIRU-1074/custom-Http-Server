@@ -7,19 +7,24 @@ import in.jolt.JsonMapper;
 import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.Route;
+import in.jolt.ToolHint;
 import in.jolt.internal.limit.FixedWindow;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -42,12 +47,14 @@ public final class Mcp {
     private final JsonMapper mapper;
     private final Consumer<ToolCall> audit;
     private final List<FixedWindow> budgets = new ArrayList<>();
+    private final Approvals approvals;
 
     private Mcp(App app, McpOptions options, LongSupplier nanos) {
         this.app = app;
         this.options = options;
         this.mapper = app.config().jsonMapper();
         this.audit = options.audit() != null ? options.audit() : this::log;
+        this.approvals = new Approvals(nanos);
         for (McpOptions.Budget b : options.budgets()) {
             long windowNanos;
             try {
@@ -59,13 +66,50 @@ public final class Mcp {
         }
     }
 
-    /** Registers the MCP endpoint at {@code path}. Nothing is exposed until you call this. */
-    public static void expose(App app, String path, McpOptions options) {
-        expose(app, path, options, System::nanoTime);
+    /**
+     * Registers the MCP endpoint at {@code path}. Nothing is exposed until you call this. Returns
+     * the endpoint, for {@link #approvals()}.
+     */
+    public static Mcp expose(App app, String path, McpOptions options) {
+        return expose(app, path, options, System::nanoTime);
     }
 
-    static void expose(App app, String path, McpOptions options, LongSupplier nanos) {
+    static Mcp expose(App app, String path, McpOptions options, LongSupplier nanos) {
         Mcp mcp = new Mcp(app, options, nanos);
+        if (options.approvals() == null) {
+            app.onStart(
+                    () -> {
+                        for (Route r : mcp.tools()) {
+                            if (r.has(ToolHint.APPROVAL)) {
+                                throw new IllegalStateException(
+                                        r.method()
+                                                + " "
+                                                + r.path()
+                                                + " needs approval; set McpOptions.approvals(...)");
+                            }
+                        }
+                    });
+        }
+        if (options.approvalPath() != null) {
+            String base = options.approvalPath();
+            app.use(base, options.approvalAuth());
+            app.post(
+                    base + "/:id/approve",
+                    (req, res) -> decided(res, mcp.approvals.approve(req.param("id"))));
+            app.post(
+                    base + "/:id/deny",
+                    (req, res) -> {
+                        String reason = null;
+                        byte[] b = req.body();
+                        if (b != null
+                                && b.length > 0
+                                && mcp.mapper.read(b, Map.class).get("reason")
+                                        instanceof String r) {
+                            reason = r;
+                        }
+                        decided(res, mcp.approvals.deny(req.param("id"), reason));
+                    });
+        }
         app.use(
                 path,
                 (req, res, next) -> {
@@ -83,6 +127,20 @@ public final class Mcp {
             app.use(path, options.auth());
         }
         app.post(path, mcp::handle);
+        return mcp;
+    }
+
+    /** Pending approvals; approve or deny them from your own admin route or notifier. */
+    public Approvals approvals() {
+        return approvals;
+    }
+
+    private static void decided(Response res, boolean ok) {
+        if (ok) {
+            res.status(HttpStatus.NO_CONTENT);
+        } else {
+            res.status(HttpStatus.NOT_FOUND).text("No pending approval with that id");
+        }
     }
 
     private void handle(Request req, Response res) {
@@ -163,15 +221,35 @@ public final class Mcp {
             } else if (BODY_METHODS.contains(r.method())) {
                 props.put("body", Map.of("type", "object", "description", "JSON request body"));
             }
-            out.add(
-                    Map.of(
-                            "name", name,
-                            "description", r.tool(),
-                            "inputSchema",
-                                    Map.of(
-                                            "type", "object",
-                                            "properties", props,
-                                            "required", required)));
+            if (r.has(ToolHint.DRY_RUN)) {
+                props.put(
+                        "dryRun",
+                        Map.of(
+                                "type",
+                                "boolean",
+                                "description",
+                                "Preview the result without changing anything"));
+            }
+            if (r.has(ToolHint.APPROVAL)) {
+                props.put(
+                        "approvalId",
+                        Map.of(
+                                "type",
+                                "string",
+                                "description",
+                                "Id from an earlier pending result, once a human approved it"));
+            }
+            Map<String, Object> tool = new LinkedHashMap<>();
+            tool.put("name", name);
+            tool.put("description", r.tool());
+            tool.put(
+                    "inputSchema",
+                    Map.of("type", "object", "properties", props, "required", required));
+            Map<String, Object> annotations = annotations(r);
+            if (!annotations.isEmpty()) {
+                tool.put("annotations", annotations);
+            }
+            out.add(tool);
         }
         return out;
     }
@@ -188,8 +266,9 @@ public final class Mcp {
         String agent = agent(outer);
         Map<?, ?> args = params.get("arguments") instanceof Map<?, ?> a ? a : Map.of();
         int[] status = {500};
+        String[] approvalId = {null};
         try {
-            return runTool(outer, id, tools, toolName, target, agent, args, status);
+            return runTool(outer, id, tools, toolName, target, agent, args, status, approvalId);
         } finally {
             String client = outer.header("User-Agent");
             if (client != null && client.length() > MAX_CLIENT_LABEL) {
@@ -206,6 +285,8 @@ public final class Mcp {
                             target.substring(space + 1),
                             status[0],
                             Duration.ofNanos(System.nanoTime() - start),
+                            Boolean.TRUE.equals(args.get("dryRun")),
+                            approvalId[0],
                             outer.id(),
                             options.auditArguments()
                                     ? Collections.unmodifiableMap(new LinkedHashMap<>(args))
@@ -221,7 +302,8 @@ public final class Mcp {
             String target,
             String agent,
             Map<?, ?> args,
-            int[] status) {
+            int[] status,
+            String[] approvalId) {
         for (int i = 0; i < budgets.size(); i++) {
             McpOptions.Budget b = options.budgets().get(i);
             if (!b.tool().equals("*") && !b.tool().equals(toolName)) {
@@ -245,6 +327,27 @@ public final class Mcp {
         for (Route r : tools) {
             if ((r.method() + " " + r.path()).equals(target)) {
                 route = r;
+            }
+        }
+        Object dryArg = args.get("dryRun");
+        if (dryArg != null && !(dryArg instanceof Boolean)) {
+            status[0] = 400;
+            return error(id, -32602, "dryRun must be true or false");
+        }
+        boolean dry = Boolean.TRUE.equals(dryArg);
+        if (dry && !route.has(ToolHint.DRY_RUN)) {
+            status[0] = 400;
+            return error(
+                    id,
+                    -32602,
+                    toolName
+                            + " does not support dryRun; it would really run. Call it without"
+                            + " dryRun.");
+        }
+        if (route.has(ToolHint.APPROVAL) && !dry) {
+            Map<String, Object> gate = gate(id, route, toolName, agent, args, status, approvalId);
+            if (gate != null) {
+                return gate;
             }
         }
         StringBuilder path = new StringBuilder();
@@ -295,6 +398,9 @@ public final class Mcp {
                         headers,
                         body,
                         mapper);
+        if (dry) {
+            inner.attr("jolt.dryRun", Boolean.TRUE);
+        }
         Response out = new Response(mapper);
         try {
             app.dispatch(inner, out);
@@ -317,6 +423,119 @@ public final class Mcp {
         }
         payload.put("isError", failed);
         return result(id, payload);
+    }
+
+    private Map<String, Object> gate(
+            Object id,
+            Route route,
+            String toolName,
+            String agent,
+            Map<?, ?> args,
+            int[] status,
+            String[] approvalId) {
+        if (options.approvals() == null) {
+            status[0] = 403;
+            return toolError(id, toolName + " needs human approval, which is not configured");
+        }
+        Map<Object, Object> callArgs = new LinkedHashMap<>(args);
+        callArgs.remove("approvalId");
+        callArgs.remove("dryRun");
+        String hash = hash(toolName, callArgs);
+        Object given = args.get("approvalId");
+        if (given == null) {
+            String created = approvals.create(agent, toolName, hash);
+            if (created == null) {
+                status[0] = 503;
+                return toolError(id, "Too many approvals are pending; try again later");
+            }
+            approvalId[0] = created;
+            status[0] = 202;
+            Instant expires = Instant.now().plus(Approvals.TTL);
+            try {
+                options.approvals()
+                        .accept(
+                                new ApprovalRequest(
+                                        created,
+                                        agent,
+                                        toolName,
+                                        route.method(),
+                                        route.path(),
+                                        Collections.unmodifiableMap(callArgs),
+                                        expires));
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "Approval notifier failed for " + created, e);
+            }
+            Map<String, Object> pending = new LinkedHashMap<>();
+            pending.put("status", "pending");
+            pending.put("approvalId", created);
+            pending.put("expiresAt", expires.toString());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put(
+                    "content",
+                    List.of(
+                            Map.of(
+                                    "type",
+                                    "text",
+                                    "text",
+                                    "Not run yet: a human must approve this call. Ask them to"
+                                            + " approve "
+                                            + created
+                                            + ", then call "
+                                            + toolName
+                                            + " again with the same arguments and approvalId.")));
+            payload.put("structuredContent", pending);
+            payload.put("isError", false);
+            return result(id, payload);
+        }
+        approvalId[0] = String.valueOf(given);
+        boolean[] stillPending = {false};
+        String problem = approvals.consume(approvalId[0], agent, toolName, hash, stillPending);
+        if (problem != null) {
+            status[0] = stillPending[0] ? 202 : 403;
+            return toolError(id, problem);
+        }
+        return null;
+    }
+
+    private static Map<String, Object> annotations(Route r) {
+        Map<String, Object> a = new LinkedHashMap<>();
+        if (r.has(ToolHint.READ_ONLY)) {
+            a.put("readOnlyHint", true);
+        } else if (r.has(ToolHint.DESTRUCTIVE)) {
+            a.put("readOnlyHint", false);
+            a.put("destructiveHint", true);
+        }
+        if (r.has(ToolHint.IDEMPOTENT)) {
+            a.put("idempotentHint", true);
+        }
+        if (r.has(ToolHint.OPEN_WORLD)) {
+            a.put("openWorldHint", true);
+        }
+        return a;
+    }
+
+    private String hash(String tool, Map<?, ?> args) {
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            sha.update(tool.getBytes(StandardCharsets.UTF_8));
+            sha.update((byte) 0);
+            sha.update(mapper.write(canonical(args)));
+            return HexFormat.of().formatHex(sha.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static Object canonical(Object v) {
+        if (v instanceof Map<?, ?> m) {
+            Map<String, Object> sorted = new TreeMap<>();
+            m.forEach((k, x) -> sorted.put(String.valueOf(k), canonical(x)));
+            return sorted;
+        }
+        if (v instanceof List<?> l) {
+            return l.stream().map(Mcp::canonical).toList();
+        }
+        return v;
     }
 
     private Object structured(Response res) {

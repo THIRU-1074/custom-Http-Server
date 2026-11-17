@@ -175,6 +175,9 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         m.put("path", r.path());
         m.put("tool", r.tool());
         m.put("input", r.input() == null ? null : r.input().getSimpleName());
+        if (!r.hints().isEmpty()) {
+            m.put("hints", r.hints().stream().map(Enum::name).sorted().toList());
+        }
         return m;
     }
 

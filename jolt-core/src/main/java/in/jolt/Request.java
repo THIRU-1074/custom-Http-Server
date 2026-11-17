@@ -31,6 +31,7 @@ public final class Request implements Params {
     private final Map<String, String> headers;
     private final byte[] body;
     private final JsonMapper mapper;
+    static final String DRY_RUN = "jolt.dryRun";
     private final Map<String, Object> attributes = new HashMap<>();
     private Map<String, String> params = Map.of();
     private Map<String, List<String>> query;
@@ -325,6 +326,14 @@ public final class Request implements Params {
      */
     public String traceId() {
         return (String) attributes.get(RequestId.TRACE_ATTRIBUTE);
+    }
+
+    /**
+     * True when an MCP agent called this {@link ToolHint#DRY_RUN} tool with {@code dryRun}: return
+     * a preview and change nothing.
+     */
+    public boolean dryRun() {
+        return Boolean.TRUE.equals(attributes.get(DRY_RUN));
     }
 
     /** Per-request value set by middleware, or {@code null}. */
