@@ -57,7 +57,7 @@ Full API sheets: [llms.txt](llms.txt) (core) and [llms-extras.txt](llms-extras.t
 |---|---|
 | Routing and middleware | `get/post/put/delete/patch/head/options`, `:param`, `*`, regex constraints and optional params, `Router` mounting, route-level middleware, `RouteModule` and typed handlers, `onError` mappers |
 | Request | Query, form, cookies, JSON into records, multipart, typed params (`req.param("id", Long.class)`), validation (422), JSON dates/UUID/enums/Optional |
-| Response | `json/text/html/send/sendFile/redirect`, cookies, ETag and cache headers, static files with Range, gzip, HTML templating, content negotiation and codecs, problem+json (opt-in) |
+| Response | `json/text/html/send/sendFile/redirect`, cookies, ETag and cache headers, in-memory `TtlCache` (LRU, single-flight loads), static files with Range, gzip, HTML templating, content negotiation and codecs, problem+json (opt-in) |
 | Security | Request limits, request-smuggling and header-injection rejection, path traversal protection, loopback bind by default, security headers, CORS, CSRF, signed sessions, rate limiting |
 | Auth (`jolt-auth`) | JWT, Basic, role checks, PBKDF2 `PasswordHasher`, refresh tokens with reuse detection |
 | Transport | HTTP/1.1 keep-alive and pipelining on virtual threads, TLS 1.2+, Expect: 100-continue, trusted-proxy headers, SSE (event ids, Last-Event-ID) and streaming, WebSocket, pub/sub `Hub` for both |
