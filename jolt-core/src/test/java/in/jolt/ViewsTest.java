@@ -210,4 +210,29 @@ class ViewsTest {
         app.get("/", (req, res) -> res.render("p", Map.of()));
         JoltTest.of(app).get("/").expect(500);
     }
+
+    @Test
+    void mtimeIsCheckedOncePerTemplatePerRender(@TempDir Path root) throws IOException {
+        file(root, "part.html", "<{{n}}>");
+        file(root, "p.html", "{{#each xs}}{{> part}}{{/each}}");
+        var views = new in.jolt.internal.view.Views(root, null);
+        var xs = java.util.stream.IntStream.range(0, 1000).mapToObj(i -> Map.of("n", i)).toList();
+        String out = views.render("p", Map.of("xs", xs));
+        assertEquals(1000, out.split(">", -1).length - 1);
+        assertEquals("<0><1><2>", views.render("p", Map.of("xs", xs.subList(0, 3))));
+        long before = views.fileChecks();
+        views.render("p", Map.of("xs", xs));
+        assertEquals(2, views.fileChecks() - before);
+    }
+
+    @Test
+    void recordFieldsRenderInsideLoops(@TempDir Path root) throws IOException {
+        file(root, "p.html", "{{#each us}}{{name}}{{#if admin}}!{{/if}} {{/each}}");
+        var us =
+                java.util.stream.IntStream.range(0, 500)
+                        .mapToObj(i -> new User("u" + i, i % 2 == 0))
+                        .toList();
+        String out = render(root, "p", Map.of("us", us));
+        assertEquals(true, out.startsWith("u0! u1 u2! "));
+    }
 }

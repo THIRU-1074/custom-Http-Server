@@ -3,6 +3,7 @@ package in.jolt.internal.view;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -40,6 +41,8 @@ public final class Views {
 
     private final Path root;
     private final String layout;
+    private final java.util.concurrent.atomic.AtomicLong checks =
+            new java.util.concurrent.atomic.AtomicLong();
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
     /**
@@ -65,14 +68,15 @@ public final class Views {
      */
     public String render(String name, Map<String, ?> model) {
         Map<String, Object> scope = new HashMap<>(model == null ? Map.of() : model);
+        Map<String, List<Node>> loaded = new HashMap<>();
         StringBuilder out = new StringBuilder();
-        draw(load(name), scopes(scope), out, 0);
+        draw(load(name, loaded), scopes(scope), out, 0, loaded);
         if (layout == null || layout.equals(name)) {
             return out.toString();
         }
         scope.put("content", out.toString());
         StringBuilder page = new StringBuilder();
-        draw(load(layout), scopes(scope), page, 0);
+        draw(load(layout, loaded), scopes(scope), page, 0, loaded);
         return page.toString();
     }
 
@@ -82,7 +86,22 @@ public final class Views {
         return d;
     }
 
+    /** Number of template file checks made so far; for tests. */
+    public long fileChecks() {
+        return checks.get();
+    }
+
+    private List<Node> load(String name, Map<String, List<Node>> loaded) {
+        List<Node> known = loaded.get(name);
+        if (known == null) {
+            known = load(name);
+            loaded.put(name, known);
+        }
+        return known;
+    }
+
     private List<Node> load(String name) {
+        checks.incrementAndGet();
         Cached c = cache.get(name);
         try {
             if (c != null && Files.getLastModifiedTime(c.file).equals(c.modified)) {
@@ -187,7 +206,12 @@ public final class Views {
         return current;
     }
 
-    private void draw(List<Node> nodes, Deque<Object> scopes, StringBuilder out, int depth) {
+    private void draw(
+            List<Node> nodes,
+            Deque<Object> scopes,
+            StringBuilder out,
+            int depth,
+            Map<String, List<Node>> loaded) {
         for (Node node : nodes) {
             switch (node) {
                 case Text t -> out.append(t.text);
@@ -199,14 +223,14 @@ public final class Views {
                 }
                 case If i -> {
                     if (truthy(lookup(scopes, i.path))) {
-                        draw(i.body, scopes, out, depth);
+                        draw(i.body, scopes, out, depth, loaded);
                     }
                 }
                 case Each e -> {
                     for (Iterator<?> it = items(lookup(scopes, e.path)); it.hasNext(); ) {
                         Object item = it.next();
                         scopes.push(item == null ? NULL : item);
-                        draw(e.body, scopes, out, depth);
+                        draw(e.body, scopes, out, depth, loaded);
                         scopes.pop();
                     }
                 }
@@ -214,7 +238,7 @@ public final class Views {
                     if (depth >= MAX_DEPTH) {
                         throw new IllegalArgumentException("Partials nested too deeply");
                     }
-                    draw(load(inc.name), scopes, out, depth + 1);
+                    draw(load(inc.name, loaded), scopes, out, depth + 1, loaded);
                 }
             }
         }
@@ -238,38 +262,43 @@ public final class Views {
         return null;
     }
 
+    private static final ClassValue<Map<String, Method>> ACCESSORS =
+            new ClassValue<>() {
+                @Override
+                protected Map<String, Method> computeValue(Class<?> type) {
+                    Map<String, Method> out = new HashMap<>();
+                    if (type.isRecord()) {
+                        for (RecordComponent rc : type.getRecordComponents()) {
+                            Method m = rc.getAccessor();
+                            try {
+                                m.setAccessible(true);
+                            } catch (RuntimeException e) {
+                                continue;
+                            }
+                            out.put(rc.getName(), m);
+                        }
+                    }
+                    return out;
+                }
+            };
+
     private static boolean has(Object scope, String key) {
         if (scope instanceof Map<?, ?> m) {
             return m.containsKey(key);
         }
-        if (scope != null && scope.getClass().isRecord()) {
-            for (RecordComponent rc : scope.getClass().getRecordComponents()) {
-                if (rc.getName().equals(key)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return scope != null && ACCESSORS.get(scope.getClass()).containsKey(key);
     }
 
     private static Object get(Object scope, String key) {
         if (scope instanceof Map<?, ?> m) {
             return m.get(key);
         }
-        if (scope != null && scope.getClass().isRecord()) {
-            for (RecordComponent rc : scope.getClass().getRecordComponents()) {
-                if (rc.getName().equals(key)) {
-                    try {
-                        var accessor = rc.getAccessor();
-                        accessor.setAccessible(true);
-                        return accessor.invoke(scope);
-                    } catch (IllegalAccessException | InvocationTargetException e) {
-                        return null;
-                    }
-                }
-            }
+        Method accessor = scope == null ? null : ACCESSORS.get(scope.getClass()).get(key);
+        try {
+            return accessor == null ? null : accessor.invoke(scope);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            return null;
         }
-        return null;
     }
 
     private static boolean truthy(Object v) {
