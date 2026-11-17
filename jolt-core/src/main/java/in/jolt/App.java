@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,6 +36,8 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
     private volatile Metrics metrics;
+    private final List<Server.Hook> hooks = new ArrayList<>();
+    private boolean listening;
 
     App(JoltConfig config) {
         this.config = config;
@@ -205,14 +208,56 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     }
 
     /**
+     * Runs {@code hook} before {@link #listen} binds the port, in order; a throw aborts {@code
+     * listen}. Register before {@code listen}, else {@code IllegalStateException}.
+     */
+    public App onStart(Runnable hook) {
+        return register(hook, null);
+    }
+
+    /**
+     * Runs {@code hook} on {@link Server#close()} after in-flight requests drained, in reverse
+     * registration order; a failure is logged and the rest still run.
+     */
+    public App onStop(Runnable hook) {
+        return register(null, hook);
+    }
+
+    /**
+     * Registers {@code start} and {@code stop} as a pair: if a later start hook fails, {@code stop}
+     * runs only when {@code start} completed.
+     */
+    public App lifecycle(Runnable start, Runnable stop) {
+        return register(
+                Objects.requireNonNull(start, "start"), Objects.requireNonNull(stop, "stop"));
+    }
+
+    private synchronized App register(Runnable start, Runnable stop) {
+        if (listening) {
+            throw new IllegalStateException("Lifecycle hooks must be registered before listen()");
+        }
+        if (start == null && stop == null) {
+            throw new NullPointerException("hook");
+        }
+        hooks.add(new Server.Hook(start, stop));
+        return this;
+    }
+
+    /**
      * Starts serving on {@code port} (0 picks a free port) on {@link JoltConfig#bindAddress} and
      * returns immediately.
      */
-    public Server listen(int port) {
+    public synchronized Server listen(int port) {
+        listening = true;
+        boolean started = false;
         try {
-            return new Server(config, port, this);
+            Server server = Server.start(config, port, this, List.copyOf(hooks));
+            started = true;
+            return server;
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot listen on port " + port, e);
+        } finally {
+            listening = started;
         }
     }
 }
