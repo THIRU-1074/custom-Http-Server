@@ -51,6 +51,9 @@ public final class ConnectionHandler implements Runnable {
     private boolean taken;
     private boolean websocket;
     private boolean failed;
+    private Metrics tracked;
+    private String method;
+    private int bodyIn;
     private boolean http10;
     private boolean head;
     private StreamSink sink;
@@ -72,7 +75,7 @@ public final class ConnectionHandler implements Runnable {
 
         @Override
         public StreamSink open(Response res) throws IOException {
-            take(false);
+            take(false, res.statusCode());
             StreamGuard guard =
                     new StreamGuard(socket, config.streamIdleTimeout(), config.streamMaxDuration());
             boolean chunked = !http10;
@@ -89,7 +92,7 @@ public final class ConnectionHandler implements Runnable {
         @Override
         public void upgrade(Request req, String accept, WebSocketHandler handler)
                 throws IOException {
-            take(true);
+            take(true, 101);
             String reply =
                     "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
                             + "Connection: Upgrade\r\nSec-WebSocket-Accept: "
@@ -235,6 +238,9 @@ public final class ConnectionHandler implements Runnable {
                 }
                 Response res = handle(parsed);
                 if (taken) {
+                    if (tracked != null) {
+                        tracked.streamEnded(websocket);
+                    }
                     if (sink != null) {
                         if (failed) {
                             sink.abort();
@@ -258,17 +264,24 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    private void take(boolean ws) throws IOException {
+    private void take(boolean ws, int status) {
         if (taken) {
             throw new IllegalStateException("Connection already taken over");
         }
         taken = true;
         websocket = ws;
+        tracked = dispatcher.metrics();
+        if (tracked != null) {
+            tracked.streamStarted(ws);
+            tracked.recordStreamed(method, status, bodyIn);
+        }
     }
 
     private Response handle(HttpParser.ParsedRequest p) {
         http10 = p.version().equals("HTTP/1.0");
         head = p.method().equals("HEAD");
+        method = p.method();
+        bodyIn = p.body().length;
         var peer = socket.getInetAddress();
         Request req =
                 trusted.request(
@@ -292,6 +305,25 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private static Response respond(
+            Dispatcher dispatcher, JoltConfig config, Request req, ConnectionHandler host) {
+        Metrics metrics = dispatcher.metrics();
+        if (metrics == null) {
+            return serve(dispatcher, config, req, host);
+        }
+        long start = System.nanoTime();
+        Response res = serve(dispatcher, config, req, host);
+        if (host == null || !host.taken) {
+            metrics.record(
+                    req.method(),
+                    res.statusCode(),
+                    System.nanoTime() - start,
+                    req.body().length,
+                    res.body().length);
+        }
+        return res;
+    }
+
+    private static Response serve(
             Dispatcher dispatcher, JoltConfig config, Request req, ConnectionHandler host) {
         var mapper = config.jsonMapper();
         Response res =

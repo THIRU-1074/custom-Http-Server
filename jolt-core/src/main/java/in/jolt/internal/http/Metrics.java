@@ -1,7 +1,5 @@
 package in.jolt.internal.http;
 
-import in.jolt.HttpException;
-import in.jolt.Middleware;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -25,6 +23,10 @@ public final class Metrics {
     private final LongAdder bytesOut = new LongAdder();
     private final LongAdder opened = new LongAdder();
     private final LongAdder closed = new LongAdder();
+    private final LongAdder streams = new LongAdder();
+    private final LongAdder streamsOpen = new LongAdder();
+    private final LongAdder sockets = new LongAdder();
+    private final LongAdder socketsOpen = new LongAdder();
 
     public Metrics() {
         for (LongAdder[] row : requests) {
@@ -45,38 +47,9 @@ public final class Metrics {
         closed.increment();
     }
 
-    /** Counts every request that passes through, including errors thrown by later steps. */
-    public Middleware middleware() {
-        return (req, res, next) -> {
-            long start = System.nanoTime();
-            int status = 500;
-            try {
-                next.run();
-                status = res.statusCode();
-            } catch (HttpException e) {
-                status = e.status();
-                throw e;
-            } finally {
-                record(
-                        req.method(),
-                        status,
-                        System.nanoTime() - start,
-                        req.body().length,
-                        res.body().length);
-            }
-        };
-    }
-
-    void record(String method, int status, long elapsedNanos, long in, long out) {
-        int m = METHODS.length - 1;
-        for (int i = 0; i < m; i++) {
-            if (METHODS[i].equals(method)) {
-                m = i;
-                break;
-            }
-        }
-        int c = Math.max(0, Math.min(CLASSES.length - 1, status / 100 - 1));
-        requests[m][c].increment();
+    /** Counts a finished request, including its latency and body sizes. */
+    public void record(String method, int status, long elapsedNanos, long in, long out) {
+        count(method, status);
         double seconds = elapsedNanos / 1e9;
         int b = 0;
         while (b < BOUNDS.length && seconds > BOUNDS[b]) {
@@ -86,6 +59,34 @@ public final class Metrics {
         nanos.add(elapsedNanos);
         bytesIn.add(in);
         bytesOut.add(out);
+    }
+
+    /** Counts a request that became a stream or WebSocket; it has no latency to report. */
+    public void recordStreamed(String method, int status, long in) {
+        count(method, status);
+        bytesIn.add(in);
+    }
+
+    /** A stream or WebSocket began. */
+    public void streamStarted(boolean websocket) {
+        (websocket ? sockets : streams).increment();
+        (websocket ? socketsOpen : streamsOpen).increment();
+    }
+
+    public void streamEnded(boolean websocket) {
+        (websocket ? socketsOpen : streamsOpen).decrement();
+    }
+
+    private void count(String method, int status) {
+        int m = METHODS.length - 1;
+        for (int i = 0; i < m; i++) {
+            if (METHODS[i].equals(method)) {
+                m = i;
+                break;
+            }
+        }
+        int c = Math.max(0, Math.min(CLASSES.length - 1, status / 100 - 1));
+        requests[m][c].increment();
     }
 
     /** The current values in Prometheus text exposition format 0.0.4. */
@@ -128,9 +129,27 @@ public final class Metrics {
         sb.append("# HELP jolt_connections_active Connections currently open.\n");
         sb.append("# TYPE jolt_connections_active gauge\n");
         sb.append("jolt_connections_active ").append(Math.max(0, open - done)).append('\n');
+        counter(sb, "jolt_streams_total", "Streamed responses started.", streams.sum());
+        gauge(sb, "jolt_streams_active", "Streamed responses open.", streamsOpen.sum());
+        counter(
+                sb,
+                "jolt_websocket_connections_total",
+                "WebSocket connections opened.",
+                sockets.sum());
+        gauge(
+                sb,
+                "jolt_websocket_connections_active",
+                "WebSocket connections open.",
+                socketsOpen.sum());
         counter(sb, "jolt_http_request_body_bytes_total", "Request body bytes.", bytesIn.sum());
         counter(sb, "jolt_http_response_body_bytes_total", "Response body bytes.", bytesOut.sum());
         return sb.toString();
+    }
+
+    private static void gauge(StringBuilder sb, String name, String help, long value) {
+        sb.append("# HELP ").append(name).append(' ').append(help).append('\n');
+        sb.append("# TYPE ").append(name).append(" gauge\n");
+        sb.append(name).append(' ').append(value).append('\n');
     }
 
     private static void counter(StringBuilder sb, String name, String help, long value) {

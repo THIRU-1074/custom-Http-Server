@@ -126,6 +126,51 @@ class MetricsTest {
     }
 
     @Test
+    void countsTheStatusTheClientReceivedAfterErrorMappers() {
+        App app = app();
+        app.onError(HttpException.class, e -> new Reply<>(503, null));
+        JoltTest t = JoltTest.of(app);
+        t.get("/nowhere").expect(503);
+        String m = t.get("/_jolt/metrics").expect(200).text();
+        assertEquals(1, value(m, "jolt_http_requests_total{method=\"GET\",class=\"5xx\"}"));
+        assertFalse(m.contains("class=\"4xx\""));
+    }
+
+    @Test
+    void websocketsAndStreamsStayOutOfTheLatencyHistogram() throws Exception {
+        App app = app();
+        app.ws("/ws", WebSocketHandler.text((s, m) -> s.send(m)));
+        app.get(
+                "/sse",
+                (req, res) -> {
+                    res.sse().event("a", "b").close();
+                });
+        try (java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+                Server server = app.listen(0)) {
+            java.net.http.WebSocket ws =
+                    client.newWebSocketBuilder()
+                            .buildAsync(
+                                    java.net.URI.create("ws://127.0.0.1:" + server.port() + "/ws"),
+                                    new java.net.http.WebSocket.Listener() {})
+                            .get(5, java.util.concurrent.TimeUnit.SECONDS);
+            try (RawClient s = new RawClient(server.port())) {
+                s.send("GET /sse HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
+                s.isClosedByPeer();
+            }
+            String m;
+            try (RawClient c = new RawClient(server.port())) {
+                m = c.get("/_jolt/metrics").text();
+            }
+            assertEquals(1, value(m, "jolt_websocket_connections_active"));
+            assertEquals(1, value(m, "jolt_websocket_connections_total"));
+            assertEquals(1, value(m, "jolt_streams_total"));
+            assertEquals(0, value(m, "jolt_http_request_duration_seconds_count"));
+            assertEquals(1, value(m, "jolt_http_requests_total{method=\"GET\",class=\"1xx\"}"));
+            ws.abort();
+        }
+    }
+
+    @Test
     void callingItTwiceInstallsItOnce() {
         App app = app();
         app.exposeMetrics();

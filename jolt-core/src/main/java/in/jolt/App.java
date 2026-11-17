@@ -173,8 +173,9 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     /**
      * Opt-in monitoring: {@code GET /_jolt/health} ({@code {"status":"UP"}}) and {@code GET
      * /_jolt/metrics} (Prometheus text: request counts by method and status class, latency
-     * histogram, connections, body bytes). Call it before other middleware so every request is
-     * counted. Exceptions other than {@link HttpException} count as 500.
+     * histogram, connections, streams, body bytes). Counts the status each client actually
+     * received, after error mappers; streams and WebSockets are counted separately and stay out of
+     * the latency histogram.
      */
     public App exposeMetrics() {
         return exposeMetrics(null);
@@ -190,7 +191,6 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         }
         Metrics m = new Metrics();
         metrics = m;
-        use(m.middleware());
         get("/_jolt/health", (req, res) -> res.json(Map.of("status", "UP")));
         Handler scrape =
                 (req, res) ->

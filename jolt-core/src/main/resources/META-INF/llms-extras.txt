@@ -25,7 +25,7 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
 ## Auth
 
 ## Observability
-app.exposeMetrics() (opt-in, call before other middleware) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, latency histogram, connections, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
+app.exposeMetrics() (opt-in, idempotent) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, final status after error mappers, latency histogram without streams, connections, streams, WebSocket gauges, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
 
 ## Dev and tooling
 jolt-dev (dev only, dep jolt-dev): class DevMain{main(){Dev.run("app.Main",Path.of("target/classes"));}}; run mvn -q compile exec:exec -Dexec.executable=java "-Dexec.args=-cp %classpath app.DevMain" (not exec:java), recompile to restart; child gets JOLT_DEV=1; app.use(DevErrors.page(app)) first renders non-HttpException, unmapped errors as HTML only when JOLT_DEV or -Djolt.dev=true.
