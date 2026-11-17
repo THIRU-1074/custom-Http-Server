@@ -150,4 +150,20 @@ class ValidationTest {
                 .expect(400)
                 .body("{\"bad\":1}");
     }
+
+    @Test
+    void nullBodyIs400BeforeValidatorOrHandler() {
+        App app = Jolt.create();
+        app.post(
+                "/t",
+                Todo.class,
+                Validate.with(
+                        (t, r) -> {
+                            throw new AssertionError("validator ran");
+                        },
+                        (p, t) -> {
+                            throw new AssertionError("handler ran");
+                        }));
+        JoltTest.of(app).post("/t").text("null").expect(400).body("Body is required");
+    }
 }

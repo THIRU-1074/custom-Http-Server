@@ -11,10 +11,14 @@ public final class Validate {
      * Wraps a typed write handler: runs {@code validator} on the bound body and calls {@code fn}
      * only if it recorded no errors.
      *
+     * @throws HttpException 400 if the body is null
      * @throws ValidationException 422 with every field error
      */
     public static <I, O> Typed.Write<I, O> with(Validator<I> validator, Typed.Write<I, O> fn) {
         return (params, body) -> {
+            if (body == null) {
+                throw new HttpException(HttpStatus.BAD_REQUEST, "Body is required");
+            }
             check(rules -> validator.validate(body, rules));
             return fn.apply(params, body);
         };
