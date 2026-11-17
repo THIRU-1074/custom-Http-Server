@@ -10,8 +10,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** An incoming HTTP request. Created by the server; public so tests can build one. */
+/**
+ * An incoming HTTP request. Created by the server; public so tests can build one. A request is
+ * handled by one thread at a time; its lazily parsed views ({@code query}, {@code form}, {@code
+ * parts}) and attributes are not synchronized.
+ */
 public final class Request implements Params {
+
+    private static final class Defaults {
+        static final JoltConfig CONFIG = JoltConfig.defaults();
+    }
 
     private final String method;
     private final String path;
@@ -27,7 +35,7 @@ public final class Request implements Params {
     private final String remoteAddress;
     private final String scheme;
     private final String host;
-    private JoltConfig config;
+    private final JoltConfig config;
     private List<Part> parts;
 
     public Request(
@@ -63,6 +71,25 @@ public final class Request implements Params {
             String remoteAddress,
             String scheme,
             String host) {
+        this(method, path, rawQuery, headers, body, mapper, remoteAddress, scheme, host, null);
+    }
+
+    /**
+     * As above, with the server settings that bound {@link #parts()}; {@code null} means {@link
+     * JoltConfig#defaults()}.
+     */
+    public Request(
+            String method,
+            String path,
+            String rawQuery,
+            Map<String, String> headers,
+            byte[] body,
+            JsonMapper mapper,
+            String remoteAddress,
+            String scheme,
+            String host,
+            JoltConfig config) {
+        this.config = config;
         this.remoteAddress = remoteAddress;
         this.scheme = scheme;
         this.host = host;
@@ -146,7 +173,7 @@ public final class Request implements Params {
                     HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Expected multipart/form-data");
         }
         if (parts == null) {
-            parts = Multipart.parse(type, body, config == null ? JoltConfig.defaults() : config);
+            parts = Multipart.parse(type, body, config == null ? Defaults.CONFIG : config);
         }
         return parts;
     }
@@ -233,10 +260,6 @@ public final class Request implements Params {
     public Request attr(String name, Object value) {
         attributes.put(name, value);
         return this;
-    }
-
-    void config(JoltConfig config) {
-        this.config = config;
     }
 
     void params(Map<String, String> params) {

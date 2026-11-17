@@ -62,7 +62,16 @@ public final class TrustedProxies {
             }
         }
         return new Request(
-                method, path, rawQuery, headers, body, config.jsonMapper(), address, scheme, host);
+                method,
+                path,
+                rawQuery,
+                headers,
+                body,
+                config.jsonMapper(),
+                address,
+                scheme,
+                host,
+                config);
     }
 
     private String forwardedFor(String header, String peer) {
