@@ -75,6 +75,20 @@ class JoltTestSessionTest {
     }
 
     @Test
+    void pastExpiresDeletesTheCookie() {
+        app.post(
+                "/expire",
+                (req, res) ->
+                        res.cookie("sid", "x", "Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+                                .text("bye"));
+        var s = JoltTest.of(app).session();
+        s.post("/login").expect(200);
+        s.post("/expire").expect(200);
+        s.get("/me").expect(200).body("null");
+        s.get("/themes").expect(200).body("dark");
+    }
+
+    @Test
     void explicitCookieHeaderWins() {
         var s = JoltTest.of(app).session();
         s.post("/login").expect(200);

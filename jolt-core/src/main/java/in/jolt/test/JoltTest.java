@@ -164,6 +164,17 @@ public final class JoltTest {
             return new Result(app, method + " " + path, res);
         }
 
+        private static boolean pastDate(String date) {
+            try {
+                return java.time.ZonedDateTime.parse(
+                                date, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+                        .toInstant()
+                        .isBefore(java.time.Instant.now());
+            } catch (java.time.format.DateTimeParseException e) {
+                return false;
+            }
+        }
+
         private static void store(Map<String, String> jar, String setCookie) {
             String[] parts = setCookie.split(";");
             int eq = parts[0].indexOf('=');
@@ -175,6 +186,9 @@ public final class JoltTest {
             for (int i = 1; i < parts.length; i++) {
                 String a = parts[i].trim().toLowerCase(java.util.Locale.ROOT);
                 expired |= a.matches("max-age=\\s*(0|-\\d+)");
+                if (a.startsWith("expires=")) {
+                    expired |= pastDate(parts[i].trim().substring(8));
+                }
             }
             if (expired) {
                 jar.remove(name);
