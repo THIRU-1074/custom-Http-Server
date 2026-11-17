@@ -1,5 +1,7 @@
 package in.jolt;
 
+import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.ResponseWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,6 +31,8 @@ public final class Response {
     private boolean typeExplicit;
     private boolean secureCookies;
     private long maxFileBytes = 10L * 1024 * 1024;
+    private ConnectionHandler host;
+    private ResponseStream stream;
 
     public Response(JsonMapper mapper) {
         this.mapper = mapper;
@@ -62,6 +66,51 @@ public final class Response {
     public Response maxFileBytes(long limit) {
         this.maxFileBytes = limit;
         return this;
+    }
+
+    /** Connects this response to its connection; the server sets this. */
+    public Response host(ConnectionHandler connection) {
+        this.host = connection;
+        return this;
+    }
+
+    /**
+     * Commits the status and headers now and returns a chunked body writer; the connection closes
+     * when the handler returns. Only on a live connection, not in {@code JoltTest}.
+     *
+     * @throws IllegalStateException if a body was already set or there is no live connection
+     */
+    public ResponseStream stream() throws IOException {
+        if (stream != null) {
+            return stream;
+        }
+        if (host == null || sent) {
+            throw new IllegalStateException(
+                    "Cannot stream: no live connection or body already set");
+        }
+        host.take();
+        var guard = host.guard();
+        try {
+            ResponseWriter.writeStreamHead(host.out(), this);
+        } catch (IOException e) {
+            guard.close();
+            throw e;
+        }
+        stream = new ResponseStream(host.out(), guard);
+        return stream;
+    }
+
+    /** Starts a Server-Sent Events response: {@link #stream} with the event-stream headers. */
+    public EventStream sse() throws IOException {
+        header("Content-Type", "text/event-stream");
+        header("Cache-Control", "no-cache");
+        header("X-Accel-Buffering", "no");
+        return new EventStream(stream());
+    }
+
+    /** True once {@link #stream} or {@link #sse} has committed the response. */
+    public boolean isStreaming() {
+        return stream != null;
     }
 
     /**

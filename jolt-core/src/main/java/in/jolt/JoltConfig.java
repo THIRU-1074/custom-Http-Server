@@ -29,7 +29,9 @@ public record JoltConfig(
         int maxParts,
         List<String> trustedProxies,
         boolean problemJson,
-        SSLContext tls) {
+        SSLContext tls,
+        Duration streamIdleTimeout,
+        Duration streamMaxDuration) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -49,7 +51,9 @@ public record JoltConfig(
                 10,
                 List.of(),
                 false,
-                null);
+                null,
+                Duration.ofSeconds(60),
+                Duration.ofHours(1));
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -126,7 +130,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -147,7 +153,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -168,7 +176,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -189,7 +199,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -210,7 +222,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -231,7 +245,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -252,7 +268,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -273,7 +291,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -294,7 +314,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -315,7 +337,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -336,7 +360,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -361,7 +387,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -390,7 +418,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -419,7 +449,9 @@ public record JoltConfig(
                 v,
                 trustedProxies,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -448,7 +480,9 @@ public record JoltConfig(
                 maxParts,
                 specs,
                 problemJson,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -473,7 +507,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 v,
-                tls);
+                tls,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -498,7 +534,9 @@ public record JoltConfig(
                 maxParts,
                 trustedProxies,
                 problemJson,
-                context);
+                context,
+                streamIdleTimeout,
+                streamMaxDuration);
     }
 
     /**
@@ -508,5 +546,38 @@ public record JoltConfig(
      */
     public JoltConfig tls(Path keystore, char[] password) {
         return tls(Tls.context(keystore, password));
+    }
+
+    /**
+     * Limits for streamed responses and WebSocket connections: a stream with no activity for {@code
+     * idle} is closed, and one older than {@code max} (zero or negative: no limit) is closed.
+     * Defaults 60 seconds and one hour.
+     *
+     * @throws IllegalArgumentException if {@code idle} is not positive
+     */
+    public JoltConfig streamTimeouts(Duration idle, Duration max) {
+        if (idle.isZero() || idle.isNegative()) {
+            throw new IllegalArgumentException("idle must be positive");
+        }
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson,
+                tls,
+                idle,
+                max);
     }
 }

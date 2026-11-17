@@ -37,6 +37,8 @@ public final class ConnectionHandler implements Runnable {
     private final BooleanSupplier draining;
     private final TrustedProxies trusted;
     private volatile boolean idle;
+    private OutputStream out;
+    private boolean taken;
 
     public ConnectionHandler(
             Socket socket,
@@ -49,6 +51,23 @@ public final class ConnectionHandler implements Runnable {
         this.dispatcher = dispatcher;
         this.draining = draining;
         this.trusted = trusted;
+    }
+
+    /** The connection's output, for handlers that take it over. */
+    public OutputStream out() {
+        return out;
+    }
+
+    /**
+     * Marks the connection as taken over by the handler: no response is written, it then closes.
+     */
+    public void take() {
+        taken = true;
+    }
+
+    /** A guard applying the stream limits of the config to this connection. */
+    public StreamGuard guard() {
+        return new StreamGuard(socket, config.streamIdleTimeout(), config.streamMaxDuration());
     }
 
     /** Closes the socket if no request is in flight. */
@@ -82,7 +101,7 @@ public final class ConnectionHandler implements Runnable {
                 tls.startHandshake();
             }
             var in = new BufferedInputStream(socket.getInputStream(), 8192);
-            OutputStream out = socket.getOutputStream();
+            out = socket.getOutputStream();
             for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
                 socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());
                 idle = true;
@@ -116,6 +135,12 @@ public final class ConnectionHandler implements Runnable {
                     return;
                 }
                 Response res = handle(parsed);
+                if (taken) {
+                    if (res.isStreaming()) {
+                        res.stream().close();
+                    }
+                    return;
+                }
                 boolean keep =
                         parsed.keepAlive()
                                 && served + 1 < config.maxRequestsPerConnection()
@@ -142,7 +167,7 @@ public final class ConnectionHandler implements Runnable {
                         p.body(),
                         peer == null ? null : peer.getHostAddress(),
                         socket instanceof SSLSocket);
-        return respond(dispatcher, config, req);
+        return respond(dispatcher, config, req, this);
     }
 
     /**
@@ -150,15 +175,25 @@ public final class ConnectionHandler implements Runnable {
      * the socket server and the in-memory test client so both behave identically.
      */
     public static Response respond(Dispatcher dispatcher, JoltConfig config, Request req) {
+        return respond(dispatcher, config, req, null);
+    }
+
+    private static Response respond(
+            Dispatcher dispatcher, JoltConfig config, Request req, ConnectionHandler host) {
         var mapper = config.jsonMapper();
         Response res =
                 new Response(mapper)
                         .secureCookies(config.secureCookies())
-                        .maxFileBytes(config.maxStaticFileBytes());
+                        .maxFileBytes(config.maxStaticFileBytes())
+                        .host(host);
         try {
             dispatcher.dispatch(req, res);
             return res;
         } catch (Throwable t) {
+            if (host != null && host.taken) {
+                LOG.log(System.Logger.Level.DEBUG, "Streaming handler ended with " + t, t);
+                return res;
+            }
             return failure(dispatcher, config, res, req, t);
         }
     }
