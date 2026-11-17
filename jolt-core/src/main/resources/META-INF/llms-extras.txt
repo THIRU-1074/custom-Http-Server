@@ -16,6 +16,7 @@ Optional and advanced features. The core API is in llms.txt. One compact line pe
 
 ## Dev and tooling
 jolt-dev (dev only): Dev.run("app.Main",Path.of("src"),Path.of("target/classes")) restarts a child JVM on file change (env JOLT_DEV=1); app.use(DevErrors.page()) first renders exception+stack as HTML, install only in dev.
+mvn archetype:generate -DarchetypeGroupId=com.github.THIRU-1074.custom-Http-Server -DarchetypeArtifactId=jolt-archetype -DarchetypeVersion=<tag> -DarchetypeRepository=https://jitpack.io scaffolds a Jolt app (pom with jolt.version, Main, JoltTest test, llms.txt, AGENTS.md).
 
 ## Modules
 jolt-db (in.jolt:jolt-db, JDK java.sql only): Db db=Db.open(jdbcUrl[,size=8,timeout=5s]); db.query(sql,rs->..,args..)->List; queryOne->Optional; update->rows; db.inTransaction(tx->{tx.update(..);return x;}) rolls back on throw; ? params only; close() the pool.
