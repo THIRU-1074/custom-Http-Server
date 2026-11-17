@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -80,6 +81,23 @@ class ViewsTest {
                                 "users", List.of(Map.of("name", "Ann"), new User("Bob", false)),
                                 "tags", List.of("a", "b"),
                                 "none", List.of())));
+    }
+
+    @Test
+    void nullElementsRenderEmpty(@TempDir Path root) throws IOException {
+        file(root, "p.html", "{{#each xs}}[{{.}}]{{/each}}|{{#each us}}<{{name}}>{{/each}}");
+        assertEquals(
+                "[a][][c]|<Ann><><Bob>",
+                render(
+                        root,
+                        "p",
+                        Map.of(
+                                "xs", Arrays.asList("a", null, "c"),
+                                "us",
+                                        Arrays.asList(
+                                                new User("Ann", true),
+                                                null,
+                                                new User("Bob", false)))));
     }
 
     @Test

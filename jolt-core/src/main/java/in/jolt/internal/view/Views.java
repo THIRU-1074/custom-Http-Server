@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Views {
 
     private static final int MAX_DEPTH = 16;
+    private static final Object NULL = new Object();
 
     private sealed interface Node {}
 
@@ -203,7 +204,8 @@ public final class Views {
                 }
                 case Each e -> {
                     for (Iterator<?> it = items(lookup(scopes, e.path)); it.hasNext(); ) {
-                        scopes.push(it.next());
+                        Object item = it.next();
+                        scopes.push(item == null ? NULL : item);
                         draw(e.body, scopes, out, depth);
                         scopes.pop();
                     }
@@ -220,7 +222,8 @@ public final class Views {
 
     private static Object lookup(Deque<Object> scopes, String path) {
         if (path.equals(".") || path.equals("this")) {
-            return scopes.peek();
+            Object top = scopes.peek();
+            return top == NULL ? null : top;
         }
         String[] parts = path.split("\\.");
         for (Object scope : scopes) {
