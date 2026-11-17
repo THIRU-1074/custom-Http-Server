@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -36,12 +37,8 @@ public final class Server implements AutoCloseable {
     private final Object closeLock = new Object();
     private volatile boolean closing;
     private boolean closed;
+    private final List<Runnable> stopHooks;
     private Thread shutdownHook;
-
-    Server(JoltConfig config, int port, ConnectionHandler.Dispatcher dispatcher)
-            throws IOException {
-        this(config, bind(config, port), dispatcher);
-    }
 
     private static ServerSocket bind(JoltConfig config, int port) throws IOException {
         InetAddress address = InetAddress.getByName(config.bindAddress());
@@ -57,7 +54,40 @@ public final class Server implements AutoCloseable {
         return socket;
     }
 
+    static Server start(
+            JoltConfig config,
+            int port,
+            ConnectionHandler.Dispatcher dispatcher,
+            List<Runnable> startHooks,
+            List<Runnable> stopHooks)
+            throws IOException {
+        ServerSocket socket = bind(config, port);
+        try {
+            for (Runnable hook : startHooks) {
+                hook.run();
+            }
+        } catch (RuntimeException e) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+                // closing after a failed start; the original failure is the one to report
+            }
+            runStopHooks(stopHooks);
+            throw new IllegalStateException("onStart hook failed, listen aborted", e);
+        }
+        return new Server(config, socket, dispatcher, stopHooks);
+    }
+
     Server(JoltConfig config, ServerSocket serverSocket, ConnectionHandler.Dispatcher dispatcher) {
+        this(config, serverSocket, dispatcher, List.of());
+    }
+
+    private Server(
+            JoltConfig config,
+            ServerSocket serverSocket,
+            ConnectionHandler.Dispatcher dispatcher,
+            List<Runnable> stopHooks) {
+        this.stopHooks = stopHooks;
         this.config = config;
         this.dispatcher = dispatcher;
         this.trusted = TrustedProxies.from(config);
@@ -176,6 +206,17 @@ public final class Server implements AutoCloseable {
                 Thread.currentThread().interrupt();
             } finally {
                 closed = true;
+            }
+            runStopHooks(stopHooks);
+        }
+    }
+
+    private static void runStopHooks(List<Runnable> hooks) {
+        for (int i = hooks.size() - 1; i >= 0; i--) {
+            try {
+                hooks.get(i).run();
+            } catch (Exception e) {
+                LOG.log(System.Logger.Level.WARNING, "onStop hook failed", e);
             }
         }
     }
