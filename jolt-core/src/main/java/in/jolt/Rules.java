@@ -1,5 +1,7 @@
 package in.jolt;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -25,18 +27,20 @@ public final class Rules {
         return value == null || value.isBlank() ? error(field, "must not be blank") : this;
     }
 
-    /** Inclusive bounds; integral values compare as longs, others as doubles. */
+    /**
+     * Inclusive bounds, compared exactly (as doubles only when all three are Double or Float).
+     *
+     * @throws IllegalArgumentException if {@code min} exceeds {@code max}
+     */
     public Rules range(String field, Number value, Number min, Number max) {
+        if (compare(min, max) > 0) {
+            throw new IllegalArgumentException("min " + min + " exceeds max " + max);
+        }
         if (value == null) {
             return required(field);
         }
-        boolean integral = integral(value) && integral(min) && integral(max);
-        boolean ok =
-                integral
-                        ? value.longValue() >= min.longValue()
-                                && value.longValue() <= max.longValue()
-                        : value.doubleValue() >= min.doubleValue()
-                                && value.doubleValue() <= max.doubleValue();
+        boolean finite = !floating(value) || Double.isFinite(value.doubleValue());
+        boolean ok = finite && compare(value, min) >= 0 && compare(value, max) <= 0;
         return ok ? this : error(field, "must be between " + min + " and " + max);
     }
 
@@ -89,7 +93,21 @@ public final class Rules {
         return error(field, "is required");
     }
 
-    private static boolean integral(Number n) {
-        return n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte;
+    private static boolean floating(Number n) {
+        return n instanceof Double || n instanceof Float;
+    }
+
+    private static int compare(Number a, Number b) {
+        if (floating(a) && floating(b)) {
+            return Double.compare(a.doubleValue(), b.doubleValue());
+        }
+        return exact(a).compareTo(exact(b));
+    }
+
+    private static BigDecimal exact(Number n) {
+        if (n instanceof BigDecimal d) {
+            return d;
+        }
+        return n instanceof BigInteger i ? new BigDecimal(i) : new BigDecimal(n.toString());
     }
 }

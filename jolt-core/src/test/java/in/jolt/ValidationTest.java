@@ -166,4 +166,25 @@ class ValidationTest {
                         }));
         JoltTest.of(app).post("/t").text("null").expect(400).body("Body is required");
     }
+
+    @Test
+    void rangeComparesExactlyBeyondDoublePrecision() {
+        var big = new java.math.BigDecimal("9007199254740993");
+        var max = new java.math.BigDecimal("9007199254740992");
+        Rules r = new Rules();
+        r.range("over", big, 0, max);
+        assertEquals("must be between 0 and 9007199254740992", r.errors().get("over"));
+        r.range("ok", max, 0, max).range("long", Long.MAX_VALUE, 0L, Long.MAX_VALUE - 1);
+        assertEquals(List.of("over", "long"), List.copyOf(r.errors().keySet()));
+        r.range("mix", new java.math.BigInteger("5"), 1, 5.5).range("nan", Double.NaN, 0.0, 1.0);
+        assertEquals(List.of("over", "long", "nan"), List.copyOf(r.errors().keySet()));
+        r.range("dbl", 0.1 + 0.2, 0.0, 0.3);
+        assertEquals("must be between 0.0 and 0.3", r.errors().get("dbl"));
+    }
+
+    @Test
+    void rangeRejectsInvertedBoundsAtTheCall() {
+        assertThrows(IllegalArgumentException.class, () -> new Rules().range("x", 3, 5, 1));
+        assertThrows(IllegalArgumentException.class, () -> new Rules().range("x", null, 5, 1));
+    }
 }
