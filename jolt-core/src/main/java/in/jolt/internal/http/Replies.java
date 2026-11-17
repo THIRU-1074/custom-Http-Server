@@ -38,7 +38,7 @@ public final class Replies {
     /** Error response for a mapped {@code reply}, see {@link #errorBase}. */
     public static Response error(Response original, Reply<?> reply, JoltConfig config) {
         Response base = errorBase(original);
-        return config.problemJson()
+        return isProblem(config, reply.status())
                 ? problem(base, reply.status(), reply.body(), null, config.jsonMapper())
                 : write(base, reply);
     }
@@ -46,58 +46,65 @@ public final class Replies {
     /** Error response for {@code e}: validation errors as JSON, anything else as plain text. */
     public static Response error(Response original, HttpException e, JoltConfig config) {
         Map<String, String> errors = e instanceof ValidationException v ? v.errors() : null;
-        if (config.problemJson()) {
-            return problem(
-                    errorBase(original),
-                    e.status(),
-                    String.valueOf(e.getMessage()),
-                    errors,
-                    config.jsonMapper());
+        String message = String.valueOf(e.getMessage());
+        Response base = errorBase(original);
+        if (isProblem(config, e.status())) {
+            return problem(base, e.status(), message, errors, config.jsonMapper());
         }
-        if (errors != null) {
-            return error(original, new Reply<>(e.status(), Map.of("errors", errors)), config);
-        }
-        return error(original, e.status(), String.valueOf(e.getMessage()), config);
+        return errors == null
+                ? base.status(e.status()).text(message)
+                : write(base, new Reply<>(e.status(), Map.of("errors", errors)));
     }
 
     /** Plain-text (or problem) error response, see {@link #errorBase}. */
     public static Response error(Response original, int status, String message, JoltConfig config) {
         Response base = errorBase(original);
-        return config.problemJson()
+        return isProblem(config, status)
                 ? problem(base, status, message, null, config.jsonMapper())
                 : base.status(status).text(message);
     }
 
-    private static Response problem(
-            Response res, int status, Object body, Map<String, String> errors, JsonMapper mapper) {
-        res.status(status);
-        if (status < 200 || status == 204 || status == 304) {
-            return res;
-        }
-        Map<String, Object> doc = new LinkedHashMap<>();
-        doc.put("type", "about:blank");
-        doc.put("title", HttpStatus.reasonFor(status));
-        doc.put("status", status);
-        if (body instanceof Map<?, ?> m) {
-            m.forEach((k, v) -> doc.put(String.valueOf(k), v));
-        } else if (body instanceof CharSequence text) {
-            doc.put("detail", text.toString());
-        } else if (body != null) {
-            extend(doc, body, mapper);
-        }
-        if (errors != null) {
-            doc.put("errors", errors);
-        }
-        doc.put("status", status);
-        return res.json(doc).header("Content-Type", PROBLEM);
+    private static boolean isProblem(JoltConfig config, int status) {
+        return config.problemJson() && status >= 400;
     }
 
-    private static void extend(Map<String, Object> doc, Object body, JsonMapper mapper) {
+    private static Response problem(
+            Response res, int status, Object body, Map<String, String> errors, JsonMapper mapper) {
+        Map<String, Object> ext = new LinkedHashMap<>();
+        if (body instanceof Map<?, ?> m) {
+            m.forEach((k, v) -> ext.put(String.valueOf(k), v));
+        } else if (body instanceof CharSequence text) {
+            ext.put("detail", text.toString());
+        } else if (body != null) {
+            extend(ext, body, mapper);
+        }
+        if (errors != null) {
+            ext.put("errors", errors);
+        }
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put("type", take(ext, "type", "about:blank"));
+        doc.put("title", take(ext, "title", HttpStatus.reasonFor(status)));
+        doc.put("status", status);
+        ext.remove("status");
+        Object detail = ext.remove("detail");
+        if (detail != null) {
+            doc.put("detail", detail);
+        }
+        doc.putAll(ext);
+        return res.status(status).json(doc).header("Content-Type", PROBLEM);
+    }
+
+    private static Object take(Map<String, Object> ext, String key, Object fallback) {
+        Object v = ext.remove(key);
+        return v == null ? fallback : v;
+    }
+
+    private static void extend(Map<String, Object> ext, Object body, JsonMapper mapper) {
         try {
             mapper.read(mapper.write(body), Map.class)
-                    .forEach((k, v) -> doc.put(String.valueOf(k), v));
+                    .forEach((k, v) -> ext.put(String.valueOf(k), v));
         } catch (IllegalArgumentException e) {
-            doc.put("detail", String.valueOf(body));
+            ext.put("detail", String.valueOf(body));
         }
     }
 }

@@ -254,4 +254,27 @@ class ProblemJsonTest {
             }
         }
     }
+
+    @Test
+    void mappedRepliesBelow400AreNotProblems() {
+        App app = app(true);
+        app.onError(IllegalStateException.class, e -> Reply.status(200, Map.of("ok", true)));
+        app.onError(IllegalArgumentException.class, e -> Reply.status(302, null));
+        app.get(
+                "/s",
+                (req, res) -> {
+                    throw new IllegalStateException();
+                });
+        app.get(
+                "/r",
+                (req, res) -> {
+                    throw new IllegalArgumentException();
+                });
+        JoltTest t = JoltTest.of(app);
+        t.get("/s")
+                .expect(200)
+                .header("Content-Type", "application/json; charset=utf-8")
+                .body("{\"ok\":true}");
+        t.get("/r").expect(302).body("");
+    }
 }
