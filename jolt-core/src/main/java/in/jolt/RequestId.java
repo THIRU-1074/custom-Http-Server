@@ -1,5 +1,6 @@
 package in.jolt;
 
+import java.util.HexFormat;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
@@ -20,7 +21,7 @@ public final class RequestId {
         return (req, res, next) -> {
             String id = req.header(HEADER);
             if (id == null || !VALID.matcher(id).matches()) {
-                id = String.format("%016x", ThreadLocalRandom.current().nextLong());
+                id = HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextLong());
             }
             req.attr(ATTRIBUTE, id);
             res.header(HEADER, id);
