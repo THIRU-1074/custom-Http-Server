@@ -19,7 +19,8 @@ public record JoltConfig(
         int maxHeaderCount,
         boolean secureCookies,
         long maxStaticFileBytes,
-        String bindAddress) {
+        String bindAddress,
+        boolean problemJson) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -34,7 +35,8 @@ public record JoltConfig(
                 100,
                 false,
                 10L * 1024 * 1024,
-                "127.0.0.1");
+                "127.0.0.1",
+                false);
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -106,7 +108,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -122,7 +125,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -138,7 +142,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -154,7 +159,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -170,7 +176,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -186,7 +193,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -202,7 +210,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -218,7 +227,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -234,7 +244,8 @@ public record JoltConfig(
                 v,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -250,7 +261,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 v,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -266,7 +278,8 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 v,
-                bindAddress);
+                bindAddress,
+                problemJson);
     }
 
     /**
@@ -286,6 +299,28 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
+                v,
+                problemJson);
+    }
+
+    /**
+     * Answers errors as {@code application/problem+json} (RFC 9457: type, title, status, detail,
+     * plus {@code errors} for validation) instead of plain text. Off by default.
+     */
+    public JoltConfig problemJson(boolean v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
                 v);
     }
 }

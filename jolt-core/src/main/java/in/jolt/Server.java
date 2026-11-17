@@ -97,7 +97,7 @@ public final class Server implements AutoCloseable {
                 continue;
             }
             if (!permits.tryAcquire()) {
-                ConnectionHandler.reject(socket);
+                ConnectionHandler.reject(socket, config);
                 continue;
             }
             var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing);

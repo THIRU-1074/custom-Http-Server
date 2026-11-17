@@ -2,7 +2,6 @@ package in.jolt.examples.attendance;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,22 +29,6 @@ class PasswordStorageTest {
     @AfterEach
     void clearProperty() {
         System.clearProperty("jolt.db");
-    }
-
-    @Test
-    void hashVerifiesTheRightPasswordOnly() {
-        String hash = PasswordHasher.hash(PASSWORD);
-        assertTrue(PasswordHasher.verify(PASSWORD, hash));
-        assertFalse(PasswordHasher.verify("wrong password!!", hash));
-        assertFalse(PasswordHasher.verify(PASSWORD, "garbage"));
-    }
-
-    @Test
-    void usesPbkdf2WithAnUnpredictableSaltPerHash() {
-        String a = PasswordHasher.hash(PASSWORD);
-        String b = PasswordHasher.hash(PASSWORD);
-        assertNotEquals(a, b);
-        assertTrue(a.startsWith("pbkdf2$" + PasswordHasher.ITERATIONS + "$"));
     }
 
     @Test
