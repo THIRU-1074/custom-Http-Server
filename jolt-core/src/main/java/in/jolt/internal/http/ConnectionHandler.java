@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.function.BooleanSupplier;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
@@ -51,15 +52,15 @@ public final class ConnectionHandler implements Runnable {
     }
 
     /** Answers 503 and closes the socket; used when the connection limit is reached. */
-    public static void reject(Socket socket) {
+    public static void reject(Socket socket, JoltConfig config) {
         try (socket) {
             socket.setSoTimeout(1000);
             writeError(
                     socket.getOutputStream(),
-                    new Response(null),
+                    config,
                     HttpStatus.SERVICE_UNAVAILABLE.code(),
                     "Server busy");
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             LOG.log(System.Logger.Level.DEBUG, "Rejecting connection failed", e);
         }
     }
@@ -92,10 +93,10 @@ public final class ConnectionHandler implements Runnable {
                 try {
                     parsed = HttpParser.parse(in, limits);
                 } catch (HttpException e) {
-                    writeError(out, new Response(config.jsonMapper()), e.status(), e.getMessage());
+                    writeError(out, config, e.status(), e.getMessage());
                     return;
                 } catch (SocketTimeoutException e) {
-                    writeError(out, new Response(config.jsonMapper()), 408, "Request Timeout");
+                    writeError(out, config, 408, "Request Timeout");
                     return;
                 } catch (EOFException e) {
                     return;
@@ -147,11 +148,12 @@ public final class ConnectionHandler implements Runnable {
             dispatcher.dispatch(req, res);
             return res;
         } catch (Throwable t) {
-            return failure(dispatcher, res, req, t);
+            return failure(dispatcher, config, res, req, t);
         }
     }
 
-    private static Response failure(Dispatcher dispatcher, Response res, Request req, Throwable t) {
+    private static Response failure(
+            Dispatcher dispatcher, JoltConfig config, Response res, Request req, Throwable t) {
         try {
             Reply<?> reply = dispatcher.mapError(t);
             if (reply != null) {
@@ -161,32 +163,62 @@ public final class ConnectionHandler implements Runnable {
                             "Mapped exception on " + req.method() + " " + req.path(),
                             t);
                 }
-                return Replies.error(res, reply);
+                return Replies.error(res, reply, config);
             }
         } catch (HttpException e) {
-            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e, config);
         } catch (Throwable e) {
             LOG.log(System.Logger.Level.ERROR, "Error mapper failed", e);
-            return internalError(res);
+            return internalError(res, config);
         }
         if (t instanceof HttpException e) {
-            return Replies.error(res, e.status(), String.valueOf(e.getMessage()));
+            return Replies.error(res, e, config);
         }
         LOG.log(
                 System.Logger.Level.ERROR,
                 "Unhandled exception on " + req.method() + " " + req.path(),
                 t);
-        return internalError(res);
+        return internalError(res, config);
     }
 
-    private static Response internalError(Response res) {
-        return Replies.error(res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error");
+    private static Response internalError(Response res, JoltConfig config) {
+        return Replies.error(
+                res, HttpStatus.INTERNAL_SERVER_ERROR.code(), "Internal Server Error", config);
     }
 
-    private static void writeError(OutputStream out, Response res, int status, String message)
+    private static void writeError(OutputStream out, JoltConfig config, int status, String message)
             throws IOException {
-        res.status(status).text(message);
+        String type = config.problemJson() ? "application/problem+json" : "text/plain";
+        String body =
+                config.problemJson()
+                        ? "{\"type\":\"about:blank\",\"title\":"
+                                + quote(HttpStatus.reasonFor(status))
+                                + ",\"status\":"
+                                + status
+                                + ",\"detail\":"
+                                + quote(message)
+                                + "}"
+                        : message;
+        Response res =
+                new Response(null)
+                        .status(status)
+                        .send(body.getBytes(StandardCharsets.UTF_8))
+                        .header("Content-Type", type + "; charset=utf-8");
         ResponseWriter.write(out, res, false, false);
+    }
+
+    private static String quote(String s) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (char c : String.valueOf(s).toCharArray()) {
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20) {
+                sb.append(String.format("\\u%04x", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
     }
 
     private static void closeQuietly(Socket s) {
