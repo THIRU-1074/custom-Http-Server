@@ -40,6 +40,9 @@ public final class JoltTest {
      * by {@code Max-Age=0}. Cookies are matched by name only, as the target is a single host.
      */
     public JoltTest session() {
+        if (jar != null) {
+            return this;
+        }
         return new JoltTest(app, new java.util.concurrent.ConcurrentHashMap<>());
     }
 

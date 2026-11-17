@@ -51,6 +51,13 @@ class JoltTestSessionTest {
     }
 
     @Test
+    void sessionOfASessionSharesItsJar() {
+        var s = JoltTest.of(app).session();
+        s.post("/login").expect(200);
+        s.session().get("/me").expect(200).body("abc");
+    }
+
+    @Test
     void plainClientStaysStateless() {
         var t = JoltTest.of(app);
         t.post("/login").expect(200);
