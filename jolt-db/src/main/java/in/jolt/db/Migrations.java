@@ -140,6 +140,7 @@ public final class Migrations {
     private static boolean applyOne(Db db, Script s) {
         try {
             db.inTransaction(
+                    TxMode.IMMEDIATE,
                     tx -> {
                         tx.update(
                                 "insert into jolt_schema_history(version, name, checksum,"

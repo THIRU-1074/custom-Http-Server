@@ -16,4 +16,22 @@ public interface Sql {
 
     /** Runs an insert, update or delete and returns the affected row count. */
     int update(String sql, Object... args);
+
+    /** Runs an insert and returns its generated numeric key, if the driver reports one. */
+    Optional<Long> insert(String sql, Object... args);
+
+    /** Runs one prepared statement for every row of arguments and returns the per-row counts. */
+    int[] batch(String sql, List<Object[]> rows);
+
+    /**
+     * Runs an update and throws {@link OptimisticLockException} unless it touched exactly {@code
+     * expectedRows}. Inside a transaction the throw rolls everything back.
+     */
+    default void updateExpecting(String sql, int expectedRows, Object... args) {
+        int n = update(sql, args);
+        if (n != expectedRows) {
+            throw new OptimisticLockException(
+                    "expected " + expectedRows + " row(s) updated but got " + n + ": " + sql);
+        }
+    }
 }
