@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.net.ssl.SSLContext;
 
 /**
@@ -587,15 +588,22 @@ public record JoltConfig(
     }
 
     /**
-     * Limits for streamed responses and WebSocket connections: a stream with no activity for {@code
-     * idle} is closed, and one older than {@code max} (zero or negative: no limit) is closed.
-     * Defaults 60 seconds and one hour.
+     * Limits for streamed responses and WebSocket connections. A stream with no write for {@code
+     * idle} is closed; a WebSocket is pinged after {@code idle} without a frame and dropped after
+     * twice that. A connection older than {@code max} is closed; zero means no cap. Defaults: 60
+     * seconds and one hour.
      *
-     * @throws IllegalArgumentException if {@code idle} is not positive
+     * @throws NullPointerException if an argument is null
+     * @throws IllegalArgumentException if {@code idle} is not positive or {@code max} is negative
      */
     public JoltConfig streamTimeouts(Duration idle, Duration max) {
+        Objects.requireNonNull(idle, "idle");
+        Objects.requireNonNull(max, "max");
         if (idle.isZero() || idle.isNegative()) {
             throw new IllegalArgumentException("idle must be positive");
+        }
+        if (max.isNegative()) {
+            throw new IllegalArgumentException("max must not be negative");
         }
         return new JoltConfig(
                 maxConnections,
