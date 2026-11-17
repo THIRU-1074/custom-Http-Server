@@ -25,7 +25,8 @@ public final class Compress {
     /**
      * Gzips bodies of at least {@code minBytes} for clients that accept it. Skips responses that
      * already carry a {@code Content-Encoding}, already-compressed media types, and bodies that do
-     * not shrink. Adds {@code Vary: Accept-Encoding} to every eligible response.
+     * not shrink, partial and ranged responses, {@code Cache-Control: no-transform}, and HEAD. Adds
+     * {@code Vary: Accept-Encoding} to every response of a compressible type.
      */
     public static Middleware gzip(int minBytes) {
         return (req, res, next) -> {
@@ -35,14 +36,18 @@ public final class Compress {
             if (status < 200
                     || status == 204
                     || status == 206
-                    || status == 304
-                    || body.length < minBytes
                     || res.headerValue("Content-Encoding") != null
+                    || res.headerValue("Accept-Ranges") != null
+                    || res.headerValue("Content-Range") != null
+                    || noTransform(res.headerValue("Cache-Control"))
                     || precompressed(res.headerValue("Content-Type"))) {
                 return;
             }
             res.addVary("Accept-Encoding");
-            if (!acceptsGzip(req.header("Accept-Encoding"))) {
+            if (body.length == 0
+                    || body.length < minBytes
+                    || req.method().equals("HEAD")
+                    || !acceptsGzip(req.header("Accept-Encoding"))) {
                 return;
             }
             byte[] packed = pack(body);
@@ -55,6 +60,11 @@ public final class Compress {
                 res.header("ETag", "W/" + etag);
             }
         };
+    }
+
+    private static boolean noTransform(String cacheControl) {
+        return cacheControl != null
+                && cacheControl.toLowerCase(Locale.ROOT).contains("no-transform");
     }
 
     private static byte[] pack(byte[] body) {

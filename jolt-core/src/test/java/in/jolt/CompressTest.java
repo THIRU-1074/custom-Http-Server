@@ -8,14 +8,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import in.jolt.test.JoltTest;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.Test;
 
 class CompressTest {
 
+    private static Path files() {
+        try {
+            Path dir = Files.createTempDirectory("jolt-compress");
+            Files.writeString(dir.resolve("big.txt"), "hello jolt ".repeat(300));
+            dir.toFile().deleteOnExit();
+            dir.resolve("big.txt").toFile().deleteOnExit();
+            return dir;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     private static final String BIG = "hello jolt ".repeat(300);
+    private static final Path FILES = files();
     private static final byte[] BIG_BYTES = BIG.getBytes(StandardCharsets.UTF_8);
 
     private static JoltTest client(Middleware mw) {
@@ -37,6 +53,10 @@ class CompressTest {
                 "/v",
                 (req, res) -> res.header("Vary", "Origin").header("ETag", "\"abc\"").text(BIG));
         app.get("/r", (req, res) -> res.redirect("/x"));
+        app.get("/nt", (req, res) -> res.header("Cache-Control", "no-transform").text(BIG));
+        app.get("/ar", (req, res) -> res.header("Accept-Ranges", "bytes").text(BIG));
+        app.get("/empty", (req, res) -> res.send(new byte[0]));
+        app.use("/f", Static.serve("/f", FILES));
         return JoltTest.of(app);
     }
 
@@ -64,10 +84,10 @@ class CompressTest {
     }
 
     @Test
-    void smallBodiesAreSkippedAndNotVaried() {
+    void smallBodiesAreSkippedButStillVary() {
         var r = client(Compress.gzip()).get("/small").header("Accept-Encoding", "gzip").expect(200);
         assertNull(r.header("Content-Encoding"));
-        assertNull(r.header("Vary"));
+        assertEquals("Accept-Encoding", r.header("Vary"));
         assertEquals("tiny", r.text());
     }
 
@@ -124,5 +144,32 @@ class CompressTest {
         var r = client(Compress.gzip(1)).get("/r").header("Accept-Encoding", "gzip").expect(302);
         assertNull(r.header("Content-Encoding"));
         assertEquals(0, r.bytes().length);
+    }
+
+    @Test
+    void noTransformRangedAndPartialResponsesStayIdentity() {
+        var t = client(Compress.gzip());
+        assertNull(encoding(t, "/nt", "gzip"));
+        assertNull(encoding(t, "/ar", "gzip"));
+        var file = t.get("/f/big.txt").header("Accept-Encoding", "gzip").expect(200);
+        assertNull(file.header("Content-Encoding"));
+        assertEquals(BIG, file.text());
+        var part =
+                t.get("/f/big.txt")
+                        .header("Accept-Encoding", "gzip")
+                        .header("Range", "bytes=0-9")
+                        .expect(206);
+        assertNull(part.header("Content-Encoding"));
+        assertEquals(10, part.bytes().length);
+    }
+
+    @Test
+    void headAndEmptyResponsesAreNotCompressedButVary() {
+        var t = client(Compress.gzip());
+        var head = t.head("/big").header("Accept-Encoding", "gzip").expect(200);
+        assertNull(head.header("Content-Encoding"));
+        assertEquals("Accept-Encoding", head.header("Vary"));
+        var empty = t.get("/empty").header("Accept-Encoding", "gzip").expect(200);
+        assertNull(empty.header("Content-Encoding"));
     }
 }
