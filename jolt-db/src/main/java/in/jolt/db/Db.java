@@ -173,7 +173,7 @@ public final class Db implements Sql, AutoCloseable {
             else c.commit();
             return result;
         } catch (Throwable e) {
-            broken = (!manual || begun) && !rollback(c, manual, e);
+            broken = ((!manual || begun) && !rollback(c, manual, e)) || connectionLost(c, e);
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             if (e instanceof RuntimeException re) throw re;
             if (e instanceof Error err) throw err;
@@ -201,7 +201,7 @@ public final class Db implements Sql, AutoCloseable {
         try {
             return fn.apply(c);
         } catch (SQLException e) {
-            broken = true;
+            broken = connectionLost(c, e);
             throw new DbException(e.getMessage(), e);
         } finally {
             release(c, broken);
@@ -239,6 +239,18 @@ public final class Db implements Sql, AutoCloseable {
         } catch (SQLException e) {
             return false;
         }
+    }
+
+    private static boolean connectionLost(Connection c, Throwable e) {
+        boolean sql = false;
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof SQLException s) {
+                String state = s.getSQLState();
+                if (state != null && state.startsWith("08")) return true;
+                sql = true;
+            }
+        }
+        return sql && !isUsable(c);
     }
 
     private void release(Connection c, boolean broken) {
