@@ -32,19 +32,19 @@ Release candidate branch `release/0.4.0-rc`. Versions are not bumped and nothing
 ## #61 Nested and collection validation
 `Rules.nested(field, value, validator)` and `Rules.each(field, collection, validator)` with prefixed error keys such as `seats[2].row`. ADR 0015.
 
+## #62 Pub/sub hub for SSE and WebSocket
+`Hub.create()` / `Hub.create(queueSize, maxSubscribers, replay)`; `hub.publish(topic, message)` never blocks, `hub.sse(topic, req, res)` serves a topic as SSE with event ids and `Last-Event-ID` replay, `hub.ws(req -> topic)` feeds WebSocket sessions (text only, no ids or replay), `hub.subscribe(topic, lastEventId, sink)` for anything else. Bounded queue per subscriber; one that overflows is dropped with a warning. Over the cap is 503. `hub.metrics(app.metrics(), name)` adds `<name>_subscribers` and `<name>_dropped_total`. ADR 0023.
+
 ## #68 Static files and templates from the class path
 `Static.classpath(root)`, `Static.classpath(urlPrefix, root[, ClassLoader])`, `app.viewsClasspath(root, layout[, ClassLoader])`. ADR 0016.
 
 ## #69 JoltTest streaming and SSE
 `Result.events()`, `Result.bytes()`/`text()` for streamed bodies, `Call.maxEvents(n)`, `Call.timeout(Duration)`, `Result.streamError()`. ADR 0020.
 
+## #70 SSE event ids and Last-Event-ID resume
+`EventStream.event(id, name, data)` writes an `id:` line (CR, LF or NUL in the id is rejected); `req.lastEventId()` returns the `Last-Event-ID` header. `JoltTest` results already expose ids. ADR 0022.
+
 ## #71 App-defined metrics and health checks
 `app.metrics()` returns `AppMetrics` (`counter`, `gauge`); `app.health(name, check[, timeout])`; `/_jolt/health` answers 200 or 503 with per-check status. ADR 0021.
 Breaking: `App` no longer implements `ConnectionHandler.Dispatcher`; `App.metrics()` changed return type. Use `App.dispatcher()` for the server-facing view.
 
-## Not included
-
-| Issue | Status | Why |
-| --- | --- | --- |
-| #62 Pub/sub hub for SSE and WebSocket | Not included | `feat/sse-hub` has no commits. Its worktree holds only uncommitted edits, and no hub type exists. |
-| #70 SSE event ids and Last-Event-ID resume | Not included | Only uncommitted in the `feat/sse-hub` worktree: `EventStream.event(id, name, data)`, `Request.lastEventId()`, a `Live` parameter on `ConnectionHandler.respond`, `SseResumeTest`, and a draft `0017-sse-hub.md` (its decision list covers #70 only). Not committed, so not merged. When it lands, its ADR needs number 0022 because 0017 is now the webhook ADR, and its `Live` plumbing in `ConnectionHandler` must be reconciled with the `StreamCapture` approach from #69. |
