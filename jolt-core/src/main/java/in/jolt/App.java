@@ -180,8 +180,14 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
         return exposeMetrics(null);
     }
 
-    /** As {@link #exposeMetrics()}, with {@code guard} run before {@code /_jolt/metrics}. */
+    /**
+     * As {@link #exposeMetrics()}, with {@code guard} run before {@code /_jolt/metrics}. A second
+     * call has no effect, whatever its guard. May be called after {@link #listen}.
+     */
     public App exposeMetrics(Middleware guard) {
+        if (metrics != null) {
+            return this;
+        }
         Metrics m = new Metrics();
         metrics = m;
         use(m.middleware());

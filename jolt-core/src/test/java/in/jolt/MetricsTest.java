@@ -126,6 +126,34 @@ class MetricsTest {
     }
 
     @Test
+    void callingItTwiceInstallsItOnce() {
+        App app = app();
+        app.exposeMetrics();
+        JoltTest t = JoltTest.of(app);
+        t.get("/ok").expect(200);
+        String m = t.get("/_jolt/metrics").expect(200).text();
+        assertEquals(1, value(m, "jolt_http_requests_total{method=\"GET\",class=\"2xx\"}"));
+        assertEquals(
+                1, app.routes().stream().filter(r -> r.path().equals("/_jolt/metrics")).count());
+    }
+
+    @Test
+    void enablingAfterListenStillCountsConnections() throws Exception {
+        App app = Jolt.create();
+        app.get("/ok", (req, res) -> res.text("ok"));
+        try (Server server = app.listen(0)) {
+            app.exposeMetrics();
+            try (RawClient c = new RawClient(server.port())) {
+                c.get("/ok");
+            }
+            try (RawClient c = new RawClient(server.port())) {
+                String m = c.get("/_jolt/metrics").text();
+                assertTrue(value(m, "jolt_connections_total") >= 1);
+            }
+        }
+    }
+
+    @Test
     void countsConnectionsOnARealServer() throws Exception {
         try (Server server = app().listen(0)) {
             try (RawClient c = new RawClient(server.port())) {

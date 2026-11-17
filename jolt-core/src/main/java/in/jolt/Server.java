@@ -28,7 +28,6 @@ public final class Server implements AutoCloseable {
     private final JoltConfig config;
     private final ConnectionHandler.Dispatcher dispatcher;
     private final TrustedProxies trusted;
-    private final Metrics metrics;
     private final ServerSocket serverSocket;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore permits;
@@ -62,7 +61,6 @@ public final class Server implements AutoCloseable {
         this.config = config;
         this.dispatcher = dispatcher;
         this.trusted = TrustedProxies.from(config);
-        this.metrics = dispatcher.metrics();
         this.permits = new Semaphore(config.maxConnections());
         this.serverSocket = serverSocket;
         this.acceptor = new Thread(this::acceptLoop, "jolt-acceptor");
@@ -121,8 +119,9 @@ public final class Server implements AutoCloseable {
             }
             var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing, trusted);
             live.add(handler);
-            if (metrics != null) {
-                metrics.connectionOpened();
+            Metrics opened = dispatcher.metrics();
+            if (opened != null) {
+                opened.connectionOpened();
             }
             try {
                 executor.execute(
@@ -143,8 +142,9 @@ public final class Server implements AutoCloseable {
     private void release(ConnectionHandler handler) {
         live.remove(handler);
         permits.release();
-        if (metrics != null) {
-            metrics.connectionClosed();
+        Metrics m = dispatcher.metrics();
+        if (m != null) {
+            m.connectionClosed();
         }
     }
 
