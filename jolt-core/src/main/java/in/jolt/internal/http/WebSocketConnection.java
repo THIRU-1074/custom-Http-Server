@@ -197,6 +197,14 @@ final class WebSocketConnection implements WebSocketSession {
         if (b0 < 0) {
             throw new EOFException();
         }
+        try {
+            return frameAfter(b0);
+        } catch (SocketTimeoutException e) {
+            throw new Fail(1001, "Frame timed out");
+        }
+    }
+
+    private Frame frameAfter(int b0) throws IOException, Fail {
         int b1 = in.read();
         if (b1 < 0) {
             throw new EOFException();

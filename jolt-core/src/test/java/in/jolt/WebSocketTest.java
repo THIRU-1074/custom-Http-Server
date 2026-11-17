@@ -333,6 +333,24 @@ class WebSocketTest {
     }
 
     @Test
+    void stalledPartialFramesCloseWith1001() throws Exception {
+        App app =
+                echoApp(
+                        JoltConfig.defaults()
+                                .streamTimeouts(Duration.ofMillis(200), Duration.ofHours(1)));
+        try (Server server = app.listen(0)) {
+            try (Raw c = Raw.connect(server.port(), "/echo", null)) {
+                c.raw(new byte[] {(byte) 0x81});
+                assertEquals(1001, c.readCloseCode());
+            }
+            try (Raw c = Raw.connect(server.port(), "/echo", null)) {
+                c.raw(new byte[] {(byte) 0x81, (byte) 0x85, 1, 2, 3, 4, 'a', 'b'});
+                assertEquals(1001, c.readCloseCode());
+            }
+        }
+    }
+
+    @Test
     void handlerExceptionClosesWith1011() throws Exception {
         WebSocketHandler h =
                 WebSocketHandler.text(
@@ -414,6 +432,10 @@ class WebSocketTest {
             }
             String text = b.toString(StandardCharsets.ISO_8859_1);
             return new Head(Integer.parseInt(text.split(" ")[1]), text);
+        }
+
+        void raw(byte[] bytes) throws IOException {
+            socket.getOutputStream().write(bytes);
         }
 
         void frame(int op, boolean fin, byte[] payload) throws IOException {
