@@ -1,4 +1,8 @@
 jdk:
   - openjdk21
+before_install:
+  - sdk install maven 3.9.9
+  - sdk use maven 3.9.9
 install:
+  - mvn -B -v
   - mvn -B install -DskipTests -Dspotless.check.skip=true
