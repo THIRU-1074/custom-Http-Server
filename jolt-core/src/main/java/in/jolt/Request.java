@@ -4,6 +4,7 @@ import in.jolt.internal.http.Codec;
 import in.jolt.internal.view.Views;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.BiConsumer;
 
 /**
  * An incoming HTTP request. Created by the server; public so tests can build one. A request is
@@ -31,7 +33,7 @@ public final class Request implements Params {
     private final JsonMapper mapper;
     private final Map<String, Object> attributes = new HashMap<>();
     private Map<String, String> params = Map.of();
-    private Map<String, String> query;
+    private Map<String, List<String>> query;
     private Map<String, String> cookies;
     private Map<String, String> form;
     private final String remoteAddress;
@@ -130,14 +132,35 @@ public final class Request implements Params {
 
     @Override
     public String query(String name) {
-        return query().get(name);
+        List<String> values = parsedQuery().get(name);
+        return values == null ? null : values.get(0);
+    }
+
+    @Override
+    public List<String> queryAll(String name) {
+        List<String> values = parsedQuery().get(name);
+        return values == null ? List.of() : Collections.unmodifiableList(values);
     }
 
     public Map<String, String> query() {
+        Map<String, String> first = new LinkedHashMap<>();
+        parsedQuery().forEach((k, v) -> first.put(k, v.get(0)));
+        return Collections.unmodifiableMap(first);
+    }
+
+    private Map<String, List<String>> parsedQuery() {
         if (query == null) {
-            query = parsePairs(rawQuery, "&", true, false);
+            Map<String, List<String>> all = new LinkedHashMap<>();
+            eachPair(
+                    rawQuery,
+                    "&",
+                    true,
+                    false,
+                    StandardCharsets.UTF_8,
+                    (k, v) -> all.computeIfAbsent(k, x -> new ArrayList<>(1)).add(v));
+            query = all;
         }
-        return Collections.unmodifiableMap(query);
+        return query;
     }
 
     /**
@@ -318,8 +341,19 @@ public final class Request implements Params {
     private static Map<String, String> parsePairs(
             String s, String sep, boolean plusAsSpace, boolean strict, Charset cs) {
         Map<String, String> out = new LinkedHashMap<>();
+        eachPair(s, sep, plusAsSpace, strict, cs, out::putIfAbsent);
+        return out;
+    }
+
+    private static void eachPair(
+            String s,
+            String sep,
+            boolean plusAsSpace,
+            boolean strict,
+            Charset cs,
+            BiConsumer<String, String> sink) {
         if (s.isEmpty()) {
-            return out;
+            return;
         }
         for (String pair : s.split(sep)) {
             pair = pair.trim();
@@ -337,8 +371,7 @@ public final class Request implements Params {
                     throw new HttpException(HttpStatus.BAD_REQUEST, "Malformed form encoding");
                 }
             }
-            out.putIfAbsent(k, v);
+            sink.accept(k, v);
         }
-        return out;
     }
 }
