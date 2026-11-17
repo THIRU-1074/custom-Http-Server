@@ -5,8 +5,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Fluent HTTP response. The body is buffered and written once the handler chain returns. */
@@ -21,6 +31,10 @@ public final class Response {
                             + "|SameSite=(?:Strict|Lax|None)"
                             + "|Secure|HttpOnly)");
 
+    private static final DateTimeFormatter HTTP_DATE =
+            DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
+                    .withZone(ZoneOffset.UTC);
+
     private final JsonMapper mapper;
     private final List<Map.Entry<String, String>> headers = new ArrayList<>();
     private int status = 200;
@@ -28,6 +42,7 @@ public final class Response {
     private boolean sent;
     private boolean typeExplicit;
     private boolean secureCookies;
+    private Request req;
     private long maxFileBytes = 10L * 1024 * 1024;
 
     public Response(JsonMapper mapper) {
@@ -102,6 +117,29 @@ public final class Response {
         return this;
     }
 
+    /** Sets a weak {@code ETag} from the body and answers 304 if the request's validators match. */
+    public Response etag() {
+        header("ETag", "W/\"" + Long.toHexString(body.length) + "-" + digest(body) + "\"");
+        if (notModified(null)) {
+            status = 304;
+            body = new byte[0];
+        }
+        return this;
+    }
+
+    /** Sets {@code Cache-Control: max-age} to the whole seconds of {@code ttl}. */
+    public Response cache(Duration ttl) {
+        if (ttl.isNegative()) {
+            throw new IllegalArgumentException("ttl must not be negative");
+        }
+        return header("Cache-Control", "max-age=" + ttl.toSeconds());
+    }
+
+    /** Sets {@code Cache-Control: no-store}. */
+    public Response noStore() {
+        return header("Cache-Control", "no-store");
+    }
+
     public Response json(Object value) {
         return send(mapper.write(value), "application/json; charset=utf-8");
     }
@@ -150,8 +188,16 @@ public final class Response {
             if (!Files.isRegularFile(file)) {
                 throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
             }
-            if (Files.size(file) > maxFileBytes) {
+            long size = Files.size(file);
+            if (size > maxFileBytes) {
                 throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
+            }
+            Instant modified = Files.getLastModifiedTime(file).toInstant();
+            header("ETag", "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"");
+            header("Last-Modified", HTTP_DATE.format(modified));
+            if (notModified(modified)) {
+                status = 304;
+                return send(new byte[0], contentType(file));
             }
             return send(Files.readAllBytes(file), contentType(file));
         } catch (NoSuchFileException e) {
@@ -211,6 +257,54 @@ public final class Response {
             }
         }
         return copy;
+    }
+
+    Response request(Request request) {
+        this.req = request;
+        return this;
+    }
+
+    private boolean notModified(Instant lastModified) {
+        if (req == null
+                || status != 200
+                || !(req.method().equals("GET") || req.method().equals("HEAD"))) {
+            return false;
+        }
+        String none = req.header("If-None-Match");
+        if (none != null) {
+            String tag = headerValue("ETag");
+            return tag != null && matchesTag(none, tag);
+        }
+        String since = req.header("If-Modified-Since");
+        if (since == null || lastModified == null) {
+            return false;
+        }
+        try {
+            Instant t = DateTimeFormatter.RFC_1123_DATE_TIME.parse(since, Instant::from);
+            return !lastModified.truncatedTo(ChronoUnit.SECONDS).isAfter(t);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private static boolean matchesTag(String header, String tag) {
+        String mine = tag.startsWith("W/") ? tag.substring(2) : tag;
+        for (String candidate : header.split(",")) {
+            String c = candidate.strip();
+            if (c.equals("*") || (c.startsWith("W/") ? c.substring(2) : c).equals(mine)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String digest(byte[] bytes) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(bytes);
+            return HexFormat.of().formatHex(h, 0, 12);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     String headerValue(String name) {
