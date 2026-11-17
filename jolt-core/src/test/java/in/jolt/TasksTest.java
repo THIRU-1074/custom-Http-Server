@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import in.jolt.test.JoltTest;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +29,10 @@ class TasksTest {
             assertTrue(System.nanoTime() < end, "condition not reached");
             Thread.sleep(5);
         }
+    }
+
+    private static String scrape(App app) {
+        return JoltTest.of(app).get("/_jolt/metrics").expect(200).text();
     }
 
     @Test
@@ -138,7 +143,7 @@ class TasksTest {
             await(() -> runs.get() >= 2);
         }
         assertEquals(1, max.get());
-        String metrics = app.metrics().render();
+        String metrics = scrape(app);
         assertTrue(metrics.contains("jolt_task_skipped_total{task=\"slow\"} "), metrics);
         assertFalse(metrics.contains("jolt_task_skipped_total{task=\"slow\"} 0\n"), metrics);
     }
@@ -160,7 +165,7 @@ class TasksTest {
         try (Server server = app.listen(0)) {
             await(() -> good.get() >= 2 && bad.get() >= 2);
         }
-        String m = app.metrics().render();
+        String m = scrape(app);
         assertTrue(m.contains("jolt_task_runs_total{task=\"good\"} "), m);
         assertTrue(m.contains("jolt_task_runs_total{task=\"bad\"} "), m);
         assertTrue(m.contains("jolt_task_failures_total{task=\"good\"} 0\n"), m);
@@ -171,7 +176,7 @@ class TasksTest {
     void metricsHaveNoTaskSeriesWithoutTasks() {
         App app = Jolt.create();
         app.exposeMetrics();
-        assertFalse(app.metrics().render().contains("jolt_task"));
+        assertFalse(scrape(app).contains("jolt_task"));
     }
 
     @Test
