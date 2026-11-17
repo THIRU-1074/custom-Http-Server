@@ -38,6 +38,8 @@ public final class Response {
             DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
                     .withZone(ZoneOffset.UTC);
 
+    private static final String JSON = "application/json";
+
     private final JsonMapper mapper;
     private final List<Map.Entry<String, String>> headers = new ArrayList<>();
     private int status = 200;
@@ -145,6 +147,37 @@ public final class Response {
 
     public Response json(Object value) {
         return send(mapper.write(value), "application/json; charset=utf-8");
+    }
+
+    /**
+     * Sends {@code value} in the representation the request's {@code Accept} header prefers: JSON
+     * unless a registered {@link BodyCodec} fits better; {@code byte[]} is sent as is.
+     *
+     * @throws HttpException 406 if no representation is acceptable
+     */
+    public Response send(Object value) {
+        if (value instanceof byte[] bytes) {
+            return send(bytes);
+        }
+        List<BodyCodec> codecs = req == null ? List.of() : req.codecs();
+        List<String> offers = new ArrayList<>();
+        boolean json = codecs.stream().noneMatch(c -> c.mediaType().equals(JSON));
+        if (json) {
+            offers.add(JSON);
+        }
+        codecs.forEach(c -> offers.add(c.mediaType().toLowerCase(Locale.ROOT)));
+        if (!codecs.isEmpty()) {
+            addVary("Accept");
+        }
+        int i = Negotiate.pick(req == null ? null : req.header("Accept"), offers);
+        if (i < 0) {
+            throw new HttpException(HttpStatus.NOT_ACCEPTABLE, "Not Acceptable");
+        }
+        if (json && i == 0) {
+            return json(value);
+        }
+        BodyCodec codec = codecs.get(json ? i - 1 : i);
+        return send(codec.write(value), codec.mediaType());
     }
 
     public Response text(String s) {

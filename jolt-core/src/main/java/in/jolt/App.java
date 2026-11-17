@@ -22,6 +22,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
     private record Entry(long order, ErrorMapper<?> mapper) {}
 
     private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
+    private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
 
     App(JoltConfig config) {
@@ -39,6 +40,7 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      */
     @Override
     public void dispatch(Request req, Response res) throws Exception {
+        req.app(this);
         res.request(req);
         run(
                 req,
@@ -100,6 +102,23 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
             level = next;
         }
         return null;
+    }
+
+    /**
+     * Registers a codec for its media type, replacing an earlier one for the same type. Once any
+     * codec is registered, {@link Request#body(Class)} answers 415 for a {@code Content-Type} that
+     * is neither JSON nor a registered type.
+     */
+    public synchronized App codec(BodyCodec codec) {
+        List<BodyCodec> next = new ArrayList<>(codecs);
+        next.removeIf(c -> c.mediaType().equalsIgnoreCase(codec.mediaType()));
+        next.add(codec);
+        codecs = List.copyOf(next);
+        return this;
+    }
+
+    List<BodyCodec> codecs() {
+        return codecs;
     }
 
     /** Minimal OpenAPI 3.1 JSON describing the registered routes. */

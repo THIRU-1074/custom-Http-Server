@@ -5,6 +5,7 @@ Optional and advanced features. The core API is in llms.txt. One compact line pe
 ## Protocol
 
 ## Response
+    app.codec(new CsvCodec())  res.send(obj)   // BodyCodec{mediaType,read,write}: req.body(T) by Content-Type, res.send by Accept (JSON default); 415 unknown type once a codec exists, 406 no match
     app.use(Static.serve("/", dir).spaFallback("index.html"))   // MIME map, index.html for dirs, single Range (206/416), 304; SPA fallback is opt-in and only for browser navigations (Accept text/html, no dot)
     res.json(x).etag()  res.cache(Duration.ofMinutes(5))  res.noStore()   // weak ETag + 304 on If-None-Match; max-age; no-store. sendFile/Static do 304 (ETag, Last-Modified) automatically
     app.use(Compress.gzip())              // opt-in; gzip(minBytes), default 1024; honours Accept-Encoding q=0, sets Vary; skips images/zip/encoded; BREACH: not for pages mixing secrets with user text
