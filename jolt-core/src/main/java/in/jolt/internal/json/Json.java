@@ -9,9 +9,13 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -19,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -32,6 +37,16 @@ public final class Json {
             Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int MAX_DEPTH = 64;
     private static final int MAX_EXPONENT = 400;
+    private static final Set<Class<?>> TEXT_TYPES =
+            Set.of(
+                    Instant.class,
+                    LocalDate.class,
+                    LocalDateTime.class,
+                    LocalTime.class,
+                    OffsetDateTime.class,
+                    ZonedDateTime.class,
+                    Duration.class,
+                    UUID.class);
     private static final int UUID_LENGTH = 36;
     private static final String TOO_DEEP = "Body is nested too deeply (max " + MAX_DEPTH + ")";
 
@@ -301,6 +316,10 @@ public final class Json {
             case LocalDate t -> quote(t.toString(), sb);
             case LocalDateTime t -> quote(t.toString(), sb);
             case UUID t -> quote(t.toString(), sb);
+            case LocalTime t -> quote(t.toString(), sb);
+            case OffsetDateTime t -> quote(t.toString(), sb);
+            case ZonedDateTime t -> quote(t.toString(), sb);
+            case Duration t -> quote(t.toString(), sb);
             case Optional<?> o -> write(o.orElse(null), sb, depth);
             case Double d when d.isNaN() || d.isInfinite() -> sb.append("null");
             case Float f when f.isNaN() || f.isInfinite() -> sb.append("null");
@@ -437,10 +456,7 @@ public final class Json {
         if (Number.class.isAssignableFrom(wrap(raw))) {
             return number(v, wrap(raw), where);
         }
-        if (raw == Instant.class
-                || raw == LocalDate.class
-                || raw == LocalDateTime.class
-                || raw == UUID.class) {
+        if (TEXT_TYPES.contains(raw)) {
             return text(raw, v, where);
         }
         if (raw.isEnum()) {
@@ -503,6 +519,14 @@ public final class Json {
                 return LocalDate.parse(s);
             } else if (raw == LocalDateTime.class) {
                 return LocalDateTime.parse(s);
+            } else if (raw == LocalTime.class) {
+                return LocalTime.parse(s);
+            } else if (raw == OffsetDateTime.class) {
+                return OffsetDateTime.parse(s);
+            } else if (raw == ZonedDateTime.class) {
+                return ZonedDateTime.parse(s);
+            } else if (raw == Duration.class) {
+                return Duration.parse(s);
             } else if (s.length() == UUID_LENGTH) {
                 return UUID.fromString(s);
             }

@@ -7,9 +7,13 @@ import in.jolt.App;
 import in.jolt.Jolt;
 import in.jolt.test.JoltTest;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -199,6 +203,51 @@ class JsonValueTypesTest {
                 }) {
             assertThrows(IllegalArgumentException.class, () -> read(bad, Event.class), bad);
         }
+    }
+
+    record Moments(OffsetDateTime offset, ZonedDateTime zoned, LocalTime time, Duration length) {}
+
+    @Test
+    void moreJavaTimeTypesRoundTripAsIsoStrings() {
+        Moments m =
+                new Moments(
+                        OffsetDateTime.parse("2024-05-06T07:08:09.5+02:00"),
+                        ZonedDateTime.parse("2024-05-06T07:08:09+02:00[Europe/Paris]"),
+                        LocalTime.of(7, 8, 9),
+                        Duration.ofMinutes(90));
+        String json = Json.write(m);
+        assertEquals(
+                "{\"offset\":\"2024-05-06T07:08:09.500+02:00\","
+                        + "\"zoned\":\"2024-05-06T07:08:09+02:00[Europe/Paris]\","
+                        + "\"time\":\"07:08:09\",\"length\":\"PT1H30M\"}",
+                json);
+        assertEquals(m, read(json, Moments.class));
+    }
+
+    @Test
+    void invalidMoreTimeValuesAreIllegalArgument() {
+        for (String bad :
+                new String[] {
+                    "{\"offset\":\"2024-05-06T07:08:09\"}",
+                    "{\"offset\":5}",
+                    "{\"zoned\":\"nope\"}",
+                    "{\"zoned\":\"2024-05-06T07:08:09+02:00[Not/AZone]\"}",
+                    "{\"time\":\"25:00\"}",
+                    "{\"time\":{}}",
+                    "{\"length\":\"90 minutes\"}",
+                    "{\"length\":90}",
+                    "{\"length\":\"PT\"}"
+                }) {
+            assertThrows(IllegalArgumentException.class, () -> read(bad, Moments.class), bad);
+        }
+    }
+
+    @Test
+    void emptyOptionalIsNullInMapsAndListsButOmittedInRecords() {
+        assertEquals("{\"k\":null}", Json.write(Map.of("k", Optional.empty())));
+        assertEquals("{\"k\":7}", Json.write(Map.of("k", Optional.of(7))));
+        assertEquals(
+                "{}", Json.write(new Maybe(Optional.empty(), Optional.empty(), Optional.empty())));
     }
 
     @Test
