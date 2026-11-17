@@ -12,6 +12,11 @@ res.sse() (event(name, data), comment, retry; text/event-stream, unbuffered) and
 app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) on the connection thread; WebSocketHandler onOpen/onText/onBinary/onClose or WebSocketHandler.text((s, m) -> s.send(m)); session send(String|byte[]), ping(), close(code, reason). Middleware runs before the upgrade. Origin must match Host unless listed; config.wsLimits(64 KB frame, 1 MB message) closes 1009.
 
 ## Response
+    app.views(Path.of("views"), "layout")  res.render("page", Map.of("u", user))   // page.html: {{x}} escaped, {{{x}}} raw, a.b, {{#each xs}}{{.}}{{/each}}, {{#if x}}, {{> part}}; layout prints {{{content}}}; names confined to root, mtime-cached
+    app.codec(new CsvCodec())  res.send(obj)   // BodyCodec{mediaType,read,write}: req.body(T) by Content-Type, res.send by Accept (JSON default); 415 unknown type once a codec exists, 406 no match
+    app.use(Static.serve("/", dir).spaFallback("index.html"))   // MIME map, index.html (dir gets 301 to /), single Range + If-Range (206/416), 304; SPA fallback opt-in, only for unrouted browser navigations (Accept text/html, no dot)
+    res.json(x).etag()  res.cache(Duration.ofMinutes(5))  res.noStore()   // weak ETag + 304 on If-None-Match; max-age; no-store. sendFile/Static do 304 (ETag, Last-Modified) automatically
+    app.use(Compress.gzip())              // opt-in; gzip(minBytes), default 1024; honours Accept-Encoding q=0, sets Vary; skips images/zip/encoded; BREACH: not for pages mixing secrets with user text
 
 ## Routing
 
@@ -20,8 +25,11 @@ app.ws(path, handler).origins("https://a.example") serves WebSocket (RFC 6455) o
 ## Auth
 
 ## Observability
-
-## Dev and tooling
 app.exposeMetrics() (opt-in, call before other middleware) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, latency histogram, connections, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
 
+## Dev and tooling
+jolt-dev (dev only, dep jolt-dev): class DevMain{main(){Dev.run("app.Main",Path.of("target/classes"));}}; run mvn -q compile exec:exec -Dexec.executable=java "-Dexec.args=-cp %classpath app.DevMain" (not exec:java), recompile to restart; child gets JOLT_DEV=1; app.use(DevErrors.page(app)) first renders non-HttpException, unmapped errors as HTML only when JOLT_DEV or -Djolt.dev=true.
+mvn archetype:generate -DarchetypeGroupId=com.github.THIRU-1074.custom-Http-Server -DarchetypeArtifactId=jolt-archetype -DarchetypeVersion=<tag> -DarchetypeRepository=https://jitpack.io scaffolds a Jolt app (pom with jolt.version, Main, JoltTest test, llms.txt, AGENTS.md).
+
 ## Modules
+jolt-db (in.jolt:jolt-db, JDK java.sql only): Db db=Db.open(jdbcUrl[,size=8,timeout=5s]).queryTimeout(30s default); db.query(sql,rs->..,args..)->List; queryOne->Optional; update->rows; db.inTransaction(tx->{tx.update(..);return x;}) rolls back on any throwable; ? params only; close() the pool.

@@ -4,9 +4,11 @@ import in.jolt.internal.http.ConnectionHandler;
 import in.jolt.internal.http.Metrics;
 import in.jolt.internal.openapi.OpenApi;
 import in.jolt.internal.routing.Suggest;
+import in.jolt.internal.view.Views;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -18,11 +20,19 @@ import java.util.concurrent.atomic.AtomicLong;
 /** An HTTP application: a {@link Router} that can listen on a port. */
 public final class App extends Router implements ConnectionHandler.Dispatcher {
 
+    static final class NoRoute extends HttpException {
+        NoRoute(String message) {
+            super(HttpStatus.NOT_FOUND, message);
+        }
+    }
+
     private final JoltConfig config;
 
     private record Entry(long order, ErrorMapper<?> mapper) {}
 
     private final Map<Class<?>, Entry> mappers = new ConcurrentHashMap<>();
+    private volatile Views views;
+    private volatile List<BodyCodec> codecs = List.of();
     private final AtomicLong registrations = new AtomicLong();
     private volatile Metrics metrics;
 
@@ -41,14 +51,15 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
      */
     @Override
     public void dispatch(Request req, Response res) throws Exception {
+        req.app(this);
+        res.request(req);
         run(
                 req,
                 res,
                 req.path(),
                 () -> {
                     String hint = Suggest.nearest(routes(), req.method(), req.path());
-                    throw new HttpException(
-                            HttpStatus.NOT_FOUND,
+                    throw new NoRoute(
                             "No route "
                                     + req.method()
                                     + " "
@@ -101,6 +112,41 @@ public final class App extends Router implements ConnectionHandler.Dispatcher {
             level = next;
         }
         return null;
+    }
+
+    /**
+     * Registers a codec for its media type, replacing an earlier one for the same type. Once any
+     * codec is registered, {@link Request#body(Class)} answers 415 for a {@code Content-Type} that
+     * is neither JSON nor a registered type.
+     */
+    public synchronized App codec(BodyCodec codec) {
+        List<BodyCodec> next = new ArrayList<>(codecs);
+        next.removeIf(c -> c.mediaType().equalsIgnoreCase(codec.mediaType()));
+        next.add(codec);
+        codecs = List.copyOf(next);
+        return this;
+    }
+
+    /** Serves {@code res.render(name, model)} from {@code .html} templates under {@code root}. */
+    public App views(Path root) {
+        return views(root, null);
+    }
+
+    /**
+     * As {@link #views(Path)}, wrapping every page in the template {@code layout}, which prints the
+     * page with {@code {{{content}}}}.
+     */
+    public App views(Path root, String layout) {
+        views = new Views(root, layout);
+        return this;
+    }
+
+    Views views() {
+        return views;
+    }
+
+    List<BodyCodec> codecs() {
+        return codecs;
     }
 
     /** Minimal OpenAPI 3.1 JSON describing the registered routes. */
