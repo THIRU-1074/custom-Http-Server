@@ -270,6 +270,25 @@ class CsrfTest {
     }
 
     @Test
+    void nonCanonicalSignatureEncodingIsRejected() {
+        App app = app(Csrf.protect().token(SECRET));
+        JoltTest t = JoltTest.of(app).session();
+        String token = t.get("/form").send().text();
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char last = token.charAt(token.length() - 1);
+        String variant =
+                token.substring(0, token.length() - 1)
+                        + alphabet.charAt(alphabet.indexOf(last) | 1);
+        assertTrue(!variant.equals(token));
+        JoltTest.of(app)
+                .post("/act")
+                .header("Cookie", "csrf=" + variant)
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("X-CSRF-Token", variant)
+                .expect(403);
+    }
+
+    @Test
     void signedModeReplacesATossedCookieOnSafeRequests() {
         App app = app(Csrf.protect().token(SECRET));
         var r = JoltTest.of(app).get("/form").header("Cookie", "csrf=attacker").expect(200);

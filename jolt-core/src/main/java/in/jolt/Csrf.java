@@ -126,8 +126,12 @@ public final class Csrf implements Middleware {
             return null;
         }
         try {
-            byte[] given = Base64.getUrlDecoder().decode(cookie.substring(dot + 1));
-            return MessageDigest.isEqual(mac(cookie.substring(0, dot)), given) ? cookie : null;
+            String tail = cookie.substring(dot + 1);
+            byte[] given = Base64.getUrlDecoder().decode(tail);
+            boolean canonical = B64.encodeToString(given).equals(tail);
+            return canonical && MessageDigest.isEqual(mac(cookie.substring(0, dot)), given)
+                    ? cookie
+                    : null;
         } catch (IllegalArgumentException e) {
             return null;
         }

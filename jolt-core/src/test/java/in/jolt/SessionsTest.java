@@ -1,7 +1,9 @@
 package in.jolt;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -120,7 +122,7 @@ class SessionsTest {
         for (String bad :
                 new String[] {
                     forgedPayload + "." + parts[1],
-                    parts[0] + "." + parts[1].substring(0, parts[1].length() - 1) + "A",
+                    parts[0] + "." + flipFirst(parts[1]),
                     parts[0],
                     "." + parts[1],
                     "garbage"
@@ -131,6 +133,32 @@ class SessionsTest {
                     .expect(200)
                     .body("null true");
         }
+    }
+
+    private static String flipFirst(String s) {
+        return (s.charAt(0) == 'A' ? "B" : "A") + s.substring(1);
+    }
+
+    @Test
+    void nonCanonicalSignatureEncodingIsRejected() {
+        App app = app(Sessions.signed(KEY));
+        String cookie = JoltTest.of(app).get("/set/ada").send().header("Set-Cookie");
+        String value = cookie.substring("session=".length(), cookie.indexOf(';'));
+        String[] parts = value.split("\\.");
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char last = parts[1].charAt(parts[1].length() - 1);
+        String variant =
+                parts[1].substring(0, parts[1].length() - 1)
+                        + alphabet.charAt(alphabet.indexOf(last) | 1);
+        assertNotEquals(parts[1], variant);
+        assertArrayEquals(
+                java.util.Base64.getUrlDecoder().decode(parts[1]),
+                java.util.Base64.getUrlDecoder().decode(variant));
+        JoltTest.of(app)
+                .get("/get")
+                .header("Cookie", "session=" + parts[0] + "." + variant)
+                .expect(200)
+                .body("null true");
     }
 
     @Test
