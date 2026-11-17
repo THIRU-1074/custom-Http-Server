@@ -187,7 +187,8 @@ public final class Sessions implements Middleware {
 
     private static byte[] decode(String s) {
         try {
-            return UNB64.decode(s);
+            byte[] bytes = UNB64.decode(s);
+            return B64.encodeToString(bytes).equals(s) ? bytes : null;
         } catch (IllegalArgumentException e) {
             return null;
         }
