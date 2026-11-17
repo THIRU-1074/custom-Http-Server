@@ -81,10 +81,6 @@ public final class Session {
         return changed;
     }
 
-    void touch() {
-        changed = true;
-    }
-
     boolean isEmpty() {
         return data.isEmpty();
     }

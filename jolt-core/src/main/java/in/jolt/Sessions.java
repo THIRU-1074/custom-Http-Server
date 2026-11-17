@@ -92,19 +92,28 @@ public final class Sessions implements Middleware {
         return this;
     }
 
+    private record Loaded(Session session, long expiry, boolean stale) {}
+
     @Override
     public void handle(Request req, Response res, Next next) throws Exception {
         long now = clock.instant().getEpochSecond();
-        long[] expiry = {0};
-        boolean[] stale = {false};
-        Session session = load(req.cookie(name), now, expiry, stale);
+        Loaded loaded = load(req.cookie(name), now);
+        Session session = loaded.session();
         req.attr(ATTRIBUTE, session);
-        next.run();
+        try {
+            next.run();
+        } finally {
+            write(res, loaded, now);
+        }
+    }
+
+    private void write(Response res, Loaded loaded, long now) {
+        Session session = loaded.session();
         if (session.isNew() && session.isEmpty()) {
             return;
         }
-        boolean renew = !session.isNew() && expiry[0] - now < maxAge.toSeconds() / 2;
-        if (!session.changed() && !renew && !stale[0]) {
+        boolean renew = !session.isNew() && loaded.expiry() - now < maxAge.toSeconds() / 2;
+        if (!session.changed() && !renew && !loaded.stale()) {
             return;
         }
         if (session.isEmpty()) {
@@ -114,23 +123,18 @@ public final class Sessions implements Middleware {
         }
     }
 
-    private Session load(String cookie, long now, long[] expiry, boolean[] stale) {
+    private Loaded load(String cookie, long now) {
         if (cookie != null) {
             int dot = cookie.indexOf('.');
             if (dot > 0 && dot < cookie.length() - 1) {
                 String payload = cookie.substring(0, dot);
-                byte[] mac = decode(cookie.substring(dot + 1));
-                int used = verify(payload, mac);
+                int used = verify(payload, decode(cookie.substring(dot + 1)));
                 if (used >= 0) {
-                    Session s = parse(payload, now, expiry);
-                    if (s != null) {
-                        stale[0] = used > 0;
-                        return s;
-                    }
+                    return parse(payload, now, used > 0);
                 }
             }
         }
-        return new Session();
+        return new Loaded(new Session(), 0, false);
     }
 
     private int verify(String payload, byte[] mac) {
@@ -147,21 +151,20 @@ public final class Sessions implements Middleware {
     }
 
     @SuppressWarnings("unchecked")
-    private static Session parse(String payload, long now, long[] expiry) {
+    private static Loaded parse(String payload, long now, boolean stale) {
         try {
             byte[] raw = UNB64.decode(payload);
             Map<String, Object> envelope =
                     (Map<String, Object>) Json.parse(new String(raw, StandardCharsets.UTF_8));
-            long e = ((Number) envelope.get("e")).longValue();
-            if (e <= now) {
-                return null;
+            long expiry = ((Number) envelope.get("e")).longValue();
+            if (expiry > now) {
+                var data = new LinkedHashMap<>((Map<String, Object>) envelope.get("d"));
+                return new Loaded(new Session(data, false), expiry, stale);
             }
-            expiry[0] = e;
-            Map<String, Object> data = new LinkedHashMap<>((Map<String, Object>) envelope.get("d"));
-            return new Session(data, false);
         } catch (RuntimeException ex) {
-            return null;
+            // malformed payload: treated as no session
         }
+        return new Loaded(new Session(), 0, false);
     }
 
     private String encode(Session session, long expires) {

@@ -260,4 +260,38 @@ class SessionsTest {
         assertThrows(IllegalArgumentException.class, () -> Sessions.signed(KEY).previous("short"));
         Sessions.signed(new byte[32]);
     }
+
+    @Test
+    void cookieIsWrittenEvenWhenTheHandlerThrows() {
+        App app = Jolt.create();
+        app.use(Sessions.signed(KEY));
+        app.get(
+                "/fail",
+                (req, res) -> {
+                    Sessions.of(req).put("n", 1);
+                    throw new HttpException(401, "no");
+                });
+        routes(app);
+        JoltTest t = JoltTest.of(app).session();
+        var r = t.get("/fail").expect(401);
+        assertTrue(r.header("Set-Cookie").startsWith("session="));
+        t.get("/get").expect(200).body("null false");
+    }
+
+    @Test
+    void clearBeforeAThrowClearsTheCookie() {
+        App app = Jolt.create();
+        app.use(Sessions.signed(KEY));
+        app.get(
+                "/logout",
+                (req, res) -> {
+                    Sessions.of(req).clear();
+                    throw new HttpException(401, "bye");
+                });
+        routes(app);
+        JoltTest t = JoltTest.of(app).session();
+        t.get("/set/ada").expect(200);
+        assertTrue(t.get("/logout").expect(401).header("Set-Cookie").contains("Max-Age=0"));
+        t.get("/get").expect(200).body("null true");
+    }
 }
