@@ -14,17 +14,19 @@ final class Negotiate {
         }
         int best = -1;
         double bestQ = 0;
+        int bestRank = 0;
         for (int i = 0; i < offers.size(); i++) {
-            double q = quality(accept, offers.get(i));
-            if (q > bestQ) {
+            double[] m = match(accept, offers.get(i).toLowerCase(Locale.ROOT));
+            if (m[0] > bestQ || m[0] > 0 && m[0] == bestQ && m[1] > bestRank) {
                 best = i;
-                bestQ = q;
+                bestQ = m[0];
+                bestRank = (int) m[1];
             }
         }
         return best;
     }
 
-    private static double quality(String accept, String offer) {
+    private static double[] match(String accept, String offer) {
         int slash = offer.indexOf('/');
         String type = offer.substring(0, slash);
         int bestRank = 0;
@@ -45,7 +47,7 @@ final class Negotiate {
                 q = weight(p);
             }
         }
-        return q;
+        return new double[] {q, bestRank};
     }
 
     private static double weight(String[] params) {

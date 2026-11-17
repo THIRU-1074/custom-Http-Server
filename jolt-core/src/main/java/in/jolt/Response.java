@@ -162,7 +162,7 @@ public final class Response {
         }
         List<BodyCodec> codecs = req == null ? List.of() : req.codecs();
         List<String> offers = new ArrayList<>();
-        boolean json = codecs.stream().noneMatch(c -> c.mediaType().equals(JSON));
+        boolean json = codecs.stream().noneMatch(c -> c.mediaType().equalsIgnoreCase(JSON));
         if (json) {
             offers.add(JSON);
         }

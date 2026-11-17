@@ -141,4 +141,60 @@ class NegotiationTest {
         assertEquals(2, r.bytes().length);
         r.header("Content-Type", "application/octet-stream");
     }
+
+    static final class Csv implements BodyCodec {
+        private final String type;
+
+        Csv(String type) {
+            this.type = type;
+        }
+
+        @Override
+        public String mediaType() {
+            return type;
+        }
+
+        @Override
+        public <T> T read(byte[] bytes, Class<T> t) {
+            throw new IllegalArgumentException("read not supported");
+        }
+
+        @Override
+        public byte[] write(Object value) {
+            return ("custom:" + type).getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    @Test
+    void equalQualityPrefersTheMoreSpecificRangeThenOfferOrder() {
+        var offers = java.util.List.of("application/json", "text/csv");
+        assertEquals(0, Negotiate.pick("*/*", offers));
+        assertEquals(1, Negotiate.pick("text/csv, */*", offers));
+        assertEquals(1, Negotiate.pick("*/*, text/csv", offers));
+        assertEquals(1, Negotiate.pick("text/*", offers));
+        assertEquals(0, Negotiate.pick("text/csv;q=0.5, */*", offers));
+    }
+
+    @Test
+    void codecsMatchCaseInsensitivelyAndMayReplaceJson() {
+        App app = Jolt.create();
+        app.codec(new Csv("Application/JSON"));
+        app.get("/d", (req, res) -> res.send(Map.of("a", 1)));
+        var t = JoltTest.of(app);
+        t.get("/d").expect(200).body("custom:Application/JSON");
+        t.get("/d")
+                .header("Accept", "application/json")
+                .expect(200)
+                .body("custom:Application/JSON");
+    }
+
+    @Test
+    void specificCodecBeatsWildcardWhenQualitiesTie() {
+        App app = Jolt.create();
+        app.codec(new Csv("text/csv"));
+        app.get("/d", (req, res) -> res.send(Map.of("a", 1)));
+        var t = JoltTest.of(app);
+        t.get("/d").header("Accept", "text/csv, */*").expect(200).body("custom:text/csv");
+        t.get("/d").header("Accept", "*/*").expect(200).body("{\"a\":1}");
+    }
 }
