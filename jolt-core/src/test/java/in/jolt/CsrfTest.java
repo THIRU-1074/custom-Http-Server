@@ -202,4 +202,95 @@ class CsrfTest {
         assertNotNull(Csrf.protect());
         assertEquals(null, Csrf.token(new Request("GET", "/", "", java.util.Map.of(), null, null)));
     }
+
+    private static final byte[] SECRET = "0123456789abcdef0123456789abcdef".getBytes();
+
+    private static byte[] multipart(String csrf) {
+        return ("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n"
+                        + "--B\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n"
+                        + csrf
+                        + "\r\n--B--\r\n")
+                .getBytes();
+    }
+
+    @Test
+    void tokenModeReadsTheFieldFromMultipartBodies() {
+        JoltTest t = JoltTest.of(app(Csrf.protect().token())).session();
+        String token = t.get("/form").send().text();
+        t.post("/act")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("Content-Type", "multipart/form-data; boundary=B")
+                .body(multipart(token))
+                .expect(200);
+        t.post("/act")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("Content-Type", "multipart/form-data; boundary=B")
+                .body(multipart("nope"))
+                .expect(403);
+    }
+
+    @Test
+    void tokenIsAvailableAfterTheCheckOnUnsafeRequests() {
+        App app = Jolt.create();
+        app.use(Csrf.protect().token());
+        app.get("/form", (req, res) -> res.text(Csrf.token(req)));
+        app.post("/act", (req, res) -> res.text("again " + Csrf.token(req)));
+        JoltTest t = JoltTest.of(app).session();
+        String token = t.get("/form").send().text();
+        t.post("/act")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("X-CSRF-Token", token)
+                .expect(200)
+                .body("again " + token);
+    }
+
+    @Test
+    void signedTokensRejectATossedCookie() {
+        App app = app(Csrf.protect().token(SECRET));
+        JoltTest t = JoltTest.of(app).session();
+        String token = t.get("/form").send().text();
+        assertTrue(token.matches("[A-Za-z0-9_-]{43}\\.[A-Za-z0-9_-]{43}"), token);
+        t.post("/act")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("X-CSRF-Token", token)
+                .expect(200);
+        JoltTest.of(app)
+                .post("/act")
+                .header("Cookie", "csrf=attacker")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("X-CSRF-Token", "attacker")
+                .expect(403);
+        String forged = token.substring(0, token.indexOf('.')) + "." + "A".repeat(43);
+        JoltTest.of(app)
+                .post("/act")
+                .header("Cookie", "csrf=" + forged)
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("X-CSRF-Token", forged)
+                .expect(403);
+    }
+
+    @Test
+    void signedModeReplacesATossedCookieOnSafeRequests() {
+        App app = app(Csrf.protect().token(SECRET));
+        var r = JoltTest.of(app).get("/form").header("Cookie", "csrf=attacker").expect(200);
+        assertTrue(r.header("Set-Cookie").startsWith("csrf="));
+        assertTrue(!r.text().equals("attacker"));
+    }
+
+    @Test
+    void tokenModeRejectsSameSiteButPlainModeAllowsIt() {
+        JoltTest t = JoltTest.of(app(Csrf.protect().token())).session();
+        String token = t.get("/form").send().text();
+        t.post("/act")
+                .header("Sec-Fetch-Site", "same-site")
+                .header("X-CSRF-Token", token)
+                .expect(403);
+        t.post("/act").header("Sec-Fetch-Site", "none").header("X-CSRF-Token", token).expect(200);
+    }
+
+    @Test
+    void secretMustBeAtLeast32Bytes() {
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> Csrf.protect().token(new byte[31]));
+    }
 }

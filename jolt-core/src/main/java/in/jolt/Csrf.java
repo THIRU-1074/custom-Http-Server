@@ -2,27 +2,31 @@ package in.jolt;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Set;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
- * Opt-in CSRF protection for POST, PUT, PATCH and DELETE. A request that carries cookies must show
- * same-site intent: {@code Sec-Fetch-Site} of same-origin, same-site or none, else an {@code
- * Origin} (or {@code Referer}) matching the {@code Host}. Failures are 403.
+ * Opt-in CSRF protection for POST, PUT, PATCH and DELETE: a request with cookies needs a same-site
+ * {@code Sec-Fetch-Site} or an {@code Origin}/{@code Referer} matching {@code Host}, else 403. Safe
+ * methods pass.
  */
 public final class Csrf implements Middleware {
 
     private static final String ATTRIBUTE = "jolt.csrf";
     private static final String COOKIE = "csrf";
     private static final Set<String> UNSAFE = Set.of("POST", "PUT", "PATCH", "DELETE");
-    private static final Set<String> SAME_SITE = Set.of("same-origin", "same-site", "none");
+    private static final Base64.Encoder B64 = Base64.getUrlEncoder().withoutPadding();
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private boolean token;
     private boolean strict;
+    private byte[] secret;
 
     private Csrf() {}
 
@@ -31,12 +35,31 @@ public final class Csrf implements Middleware {
     }
 
     /**
-     * Also requires double-submit: the {@code csrf} cookie, which safe requests create, must equal
-     * the {@code X-CSRF-Token} header or the {@code _csrf} form field.
+     * Adds double-submit: the {@code csrf} cookie (created on safe requests) must equal the {@code
+     * X-CSRF-Token} header or the {@code _csrf} field of a form or multipart body; other content
+     * types need the header. Only {@code same-origin} and {@code none} Fetch Metadata pass.
+     *
+     * <p>The unsigned token is weaker: a sibling subdomain can set the cookie ("cookie tossing").
+     * Prefer {@link #token(byte[])}.
      */
     public Csrf token() {
         token = true;
         return this;
+    }
+
+    /**
+     * As {@link #token()}, with tokens signed by HMAC-SHA256 under {@code secret} so a cookie the
+     * server did not issue fails. The token is not bound to a user or session; for that, keep it in
+     * {@link Sessions}.
+     *
+     * @throws IllegalArgumentException if the secret is under 32 bytes
+     */
+    public Csrf token(byte[] secret) {
+        if (secret.length < 32) {
+            throw new IllegalArgumentException("CSRF secret must be at least 32 bytes");
+        }
+        this.secret = secret.clone();
+        return token();
     }
 
     /** Checks requests without cookies too, so API clients must send {@code Origin} as well. */
@@ -45,7 +68,7 @@ public final class Csrf implements Middleware {
         return this;
     }
 
-    /** The token for rendering forms, or {@code null} unless {@link #token()} mode is active. */
+    /** The token for rendering forms, or {@code null} unless token mode is active. */
     public static String token(Request req) {
         return (String) req.attr(ATTRIBUTE);
     }
@@ -65,15 +88,24 @@ public final class Csrf implements Middleware {
                 throw new HttpException(HttpStatus.FORBIDDEN, "CSRF check failed");
             }
         }
+        if (token) {
+            String current = valid(req.cookie(COOKIE));
+            if (current != null) {
+                req.attr(ATTRIBUTE, current);
+            }
+        }
         next.run();
     }
 
-    private static void issue(Request req, Response res) {
-        String value = req.cookie(COOKIE);
-        if (value == null || value.isEmpty()) {
+    private void issue(Request req, Response res) {
+        String value = valid(req.cookie(COOKIE));
+        if (value == null) {
             byte[] raw = new byte[32];
             RANDOM.nextBytes(raw);
-            value = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+            value = B64.encodeToString(raw);
+            if (secret != null) {
+                value = value + "." + B64.encodeToString(mac(value));
+            }
             res.cookie(
                     COOKIE,
                     value,
@@ -82,10 +114,40 @@ public final class Csrf implements Middleware {
         req.attr(ATTRIBUTE, value);
     }
 
-    private static boolean sameSite(Request req) {
+    private String valid(String cookie) {
+        if (cookie == null || cookie.isEmpty()) {
+            return null;
+        }
+        if (secret == null) {
+            return cookie;
+        }
+        int dot = cookie.indexOf('.');
+        if (dot < 1) {
+            return null;
+        }
+        try {
+            byte[] given = Base64.getUrlDecoder().decode(cookie.substring(dot + 1));
+            return MessageDigest.isEqual(mac(cookie.substring(0, dot)), given) ? cookie : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private byte[] mac(String random) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret, "HmacSHA256"));
+            return mac.doFinal(random.getBytes(StandardCharsets.US_ASCII));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HmacSHA256 unavailable", e);
+        }
+    }
+
+    private boolean sameSite(Request req) {
         String site = req.header("Sec-Fetch-Site");
         if (site != null) {
-            return SAME_SITE.contains(site.toLowerCase(Locale.ROOT));
+            String s = site.toLowerCase(Locale.ROOT);
+            return s.equals("same-origin") || s.equals("none") || !token && s.equals("same-site");
         }
         String source = req.header("Origin");
         if (source == null) {
@@ -103,17 +165,29 @@ public final class Csrf implements Middleware {
         }
     }
 
-    private static boolean tokenMatches(Request req) {
-        String cookie = req.cookie(COOKIE);
+    private boolean tokenMatches(Request req) {
+        String cookie = valid(req.cookie(COOKIE));
         String sent = req.header("X-CSRF-Token");
         if (sent == null) {
-            sent = req.form().get("_csrf");
+            sent = field(req);
         }
         return cookie != null
-                && !cookie.isEmpty()
                 && sent != null
                 && MessageDigest.isEqual(
                         cookie.getBytes(StandardCharsets.UTF_8),
                         sent.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String field(Request req) {
+        String type = req.header("Content-Type");
+        if (type != null && type.regionMatches(true, 0, "multipart/form-data", 0, 19)) {
+            for (Part part : req.parts()) {
+                if (part.filename() == null && part.name().equals("_csrf")) {
+                    return part.text();
+                }
+            }
+            return null;
+        }
+        return req.form().get("_csrf");
     }
 }
