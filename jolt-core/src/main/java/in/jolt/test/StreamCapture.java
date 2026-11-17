@@ -55,8 +55,8 @@ final class StreamCapture implements Live, StreamSink {
             }
 
             @Override
-            public Reply<?> mapError(Throwable t) {
-                return app.mapError(t);
+            public Reply<?> mapError(Throwable t, Request req) {
+                return app.mapError(t, req);
             }
 
             @Override

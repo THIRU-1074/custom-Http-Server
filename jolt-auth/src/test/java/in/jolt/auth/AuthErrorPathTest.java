@@ -5,6 +5,7 @@ import in.jolt.HttpException;
 import in.jolt.Jolt;
 import in.jolt.JoltConfig;
 import in.jolt.Reply;
+import in.jolt.RequestId;
 import in.jolt.test.JoltTest;
 import java.time.Duration;
 import java.util.Map;
@@ -106,5 +107,23 @@ class AuthErrorPathTest {
                 .expect(401)
                 .header("WWW-Authenticate", "Basic realm=\"jolt\"")
                 .jsonEquals("code", "AUTH_401");
+    }
+
+    @Test
+    void requestAwareMappersAndProblemBodiesSeeTheRequestId() {
+        App app = Jolt.create(JoltConfig.defaults().problemJson(true));
+        app.use(RequestId.middleware());
+        app.use("/mapped", JWT.middleware());
+        app.get("/mapped/x", (req, res) -> res.text("in"));
+        app.onError(
+                HttpException.class,
+                (e, req) -> Reply.status(e.status(), Map.of("path", req.path())));
+        JoltTest.of(app)
+                .get("/mapped/x")
+                .header("X-Request-Id", "r-1")
+                .expect(401)
+                .header("WWW-Authenticate", "Bearer")
+                .jsonEquals("path", "/mapped/x")
+                .jsonEquals("requestId", "r-1");
     }
 }

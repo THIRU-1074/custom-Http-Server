@@ -8,4 +8,10 @@ package in.jolt;
 @FunctionalInterface
 public interface ErrorMapper<E> {
     Reply<?> map(E error);
+
+    /** As {@link ErrorMapper}, also given the failed request: {@code (e, req) -> ...}. */
+    @FunctionalInterface
+    interface WithRequest<E> {
+        Reply<?> map(E error, Request req);
+    }
 }

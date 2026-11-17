@@ -5,6 +5,7 @@ import in.jolt.HttpStatus;
 import in.jolt.JoltConfig;
 import in.jolt.JsonMapper;
 import in.jolt.Reply;
+import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.ValidationException;
 import java.util.LinkedHashMap;
@@ -35,21 +36,26 @@ public final class Replies {
         return original.copyHeadersExcept(BODY_FRAMING);
     }
 
-    /** Error response for a mapped {@code reply}, see {@link #errorBase}. */
-    public static Response error(Response original, Reply<?> reply, JoltConfig config) {
+    /**
+     * Error response for a mapped {@code reply}, see {@link #errorBase}. A problem document gets
+     * {@code requestId} when {@code req} (nullable) has an id and the body does not set one.
+     */
+    public static Response error(
+            Response original, Reply<?> reply, JoltConfig config, Request req) {
         Response base = errorBase(original);
         return isProblem(config, reply.status())
-                ? problem(base, reply.status(), reply.body(), null, config.jsonMapper())
+                ? problem(base, reply.status(), reply.body(), null, config.jsonMapper(), req)
                 : write(base, reply);
     }
 
     /** Error response for {@code e}: validation errors as JSON, anything else as plain text. */
-    public static Response error(Response original, HttpException e, JoltConfig config) {
+    public static Response error(
+            Response original, HttpException e, JoltConfig config, Request req) {
         Map<String, String> errors = e instanceof ValidationException v ? v.errors() : null;
         String message = String.valueOf(e.getMessage());
         Response base = errorBase(original);
         if (isProblem(config, e.status())) {
-            return problem(base, e.status(), message, errors, config.jsonMapper());
+            return problem(base, e.status(), message, errors, config.jsonMapper(), req);
         }
         return errors == null
                 ? base.status(e.status()).text(message)
@@ -57,10 +63,11 @@ public final class Replies {
     }
 
     /** Plain-text (or problem) error response, see {@link #errorBase}. */
-    public static Response error(Response original, int status, String message, JoltConfig config) {
+    public static Response error(
+            Response original, int status, String message, JoltConfig config, Request req) {
         Response base = errorBase(original);
         return isProblem(config, status)
-                ? problem(base, status, message, null, config.jsonMapper())
+                ? problem(base, status, message, null, config.jsonMapper(), req)
                 : base.status(status).text(message);
     }
 
@@ -69,7 +76,12 @@ public final class Replies {
     }
 
     private static Response problem(
-            Response res, int status, Object body, Map<String, String> errors, JsonMapper mapper) {
+            Response res,
+            int status,
+            Object body,
+            Map<String, String> errors,
+            JsonMapper mapper,
+            Request req) {
         Map<String, Object> ext = new LinkedHashMap<>();
         if (body instanceof Map<?, ?> m) {
             m.forEach((k, v) -> ext.put(String.valueOf(k), v));
@@ -91,6 +103,10 @@ public final class Replies {
             doc.put("detail", detail);
         }
         doc.putAll(ext);
+        String id = req == null ? null : req.id();
+        if (id != null) {
+            doc.putIfAbsent("requestId", id);
+        }
         return res.status(status).json(doc).header("Content-Type", PROBLEM);
     }
 
