@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -24,8 +26,11 @@ import java.util.regex.Pattern;
 /**
  * Applies {@code V<number>__<name>.sql} files in numeric order, each in its own transaction, and
  * records them in {@code jolt_schema_history}. A file may hold several statements separated by
- * semicolons; a line {@code -- jolt:delimiter //} changes the separator, which triggers and
- * procedures need.
+ * semicolons outside quotes, {@code $$} or {@code $tag$} bodies and comments; a line {@code --
+ * jolt:delimiter //} changes the separator, which triggers and procedures need. Backslash escapes
+ * and {@code #} comments are not interpreted: double the quote instead. Migration files are trusted
+ * static SQL, so each statement runs as a plain {@code Statement} and a literal {@code ?} is not a
+ * parameter; this is the one place jolt-db does not bind parameters.
  */
 public final class Migrations {
 
@@ -38,6 +43,10 @@ public final class Migrations {
 
     private static final Pattern FILE = Pattern.compile("V(\\d{1,18})__(.+)\\.sql");
     private static final String DELIMITER = "-- jolt:delimiter";
+    private static final Pattern DOLLAR = Pattern.compile("\\$([A-Za-z_][A-Za-z0-9_]*)?\\$");
+
+    /** How long a run waits for another runner's lock, 30 seconds. */
+    public static final Duration DEFAULT_LOCK_TIMEOUT = Duration.ofSeconds(30);
 
     private Migrations() {}
 
@@ -139,17 +148,23 @@ public final class Migrations {
 
     private static boolean applyOne(Db db, Script s) {
         try {
-            db.inTransaction(
+            db.transact(
                     TxMode.IMMEDIATE,
-                    tx -> {
-                        tx.update(
+                    DEFAULT_LOCK_TIMEOUT,
+                    c -> {
+                        Jdbc.update(
+                                c,
+                                0,
                                 "insert into jolt_schema_history(version, name, checksum,"
                                         + " applied_at) values (?, ?, ?, ?)",
-                                s.version(),
-                                s.name(),
-                                s.checksum(),
-                                Instant.now().toString());
-                        for (String statement : split(s.sql())) tx.update(statement);
+                                new Object[] {
+                                    s.version(), s.name(), s.checksum(), Instant.now().toString()
+                                });
+                        try {
+                            for (String statement : split(s.sql())) Jdbc.execute(c, statement);
+                        } catch (SQLException e) {
+                            throw new DbException(e.getMessage(), e);
+                        }
                         return null;
                     });
             return true;
@@ -233,6 +248,10 @@ public final class Migrations {
                 end = end < 0 ? n : end + 1;
                 cur.append(sql, i, end);
                 i = end;
+            } else if (ch == '$' && dollarEnd(sql, i) > 0) {
+                int end = dollarEnd(sql, i);
+                cur.append(sql, i, end);
+                i = end;
             } else if (sql.startsWith("--", i)) {
                 int eol = sql.indexOf('\n', i);
                 i = eol < 0 ? n : eol;
@@ -250,6 +269,14 @@ public final class Migrations {
         }
         flush(cur, out);
         return out;
+    }
+
+    private static int dollarEnd(String sql, int i) {
+        Matcher m = DOLLAR.matcher(sql).region(i, sql.length());
+        if (!m.lookingAt()) return -1;
+        String tag = m.group();
+        int close = sql.indexOf(tag, m.end());
+        return close < 0 ? -1 : close + tag.length();
     }
 
     private static void flush(StringBuilder cur, List<String> out) {

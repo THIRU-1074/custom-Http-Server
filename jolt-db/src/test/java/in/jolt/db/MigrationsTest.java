@@ -94,6 +94,34 @@ class MigrationsTest {
     }
 
     @Test
+    void statementsRunAsPlainSqlWithLiteralQuestionMarks() throws IOException {
+        file(
+                "V1__plain.sql",
+                "create table t(v text);\n"
+                        + "insert into t values ('what?');\n"
+                        + "insert into t values ('say \"\"hi\"\"; it''s ok');\n"
+                        + "select count(*) from t;\n");
+        Migrations.run(db, sql);
+        assertEquals(
+                List.of("what?", "say \"\"hi\"\"; it's ok"),
+                db.query("select v from t order by rowid", rs -> rs.getString(1)));
+    }
+
+    @Test
+    void splitKeepsDollarQuotedBodies() {
+        assertEquals(
+                List.of(
+                        "create function f() returns int as $$ select 1; select 2; $$ language sql",
+                        "create function g() as $body$ a; $$ b; $body$",
+                        "select $1 + 1",
+                        "select 2"),
+                Migrations.split(
+                        "create function f() returns int as $$ select 1; select 2; $$ language sql;\n"
+                                + "create function g() as $body$ a; $$ b; $body$;\n"
+                                + "select $1 + 1; select 2;"));
+    }
+
+    @Test
     void customDelimiterAllowsTriggers() throws IOException {
         file(
                 "V1__trigger.sql",

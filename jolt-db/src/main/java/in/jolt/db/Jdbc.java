@@ -53,6 +53,12 @@ final class Jdbc {
         }
     }
 
+    static void execute(Connection c, String sql) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            st.execute(sql);
+        }
+    }
+
     static int[] batch(Connection c, int timeout, String sql, List<Object[]> rows, int chunk)
             throws SQLException {
         if (chunk < 1) throw new IllegalArgumentException("chunk size must be at least 1");

@@ -3,7 +3,6 @@ package in.jolt.db;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -331,9 +330,7 @@ public final class Db implements Sql, AutoCloseable {
     }
 
     private static void exec(Connection c, String sql) throws SQLException {
-        try (Statement st = c.createStatement()) {
-            st.execute(sql);
-        }
+        Jdbc.execute(c, sql);
     }
 
     private static boolean rollback(Connection c, boolean manual, Throwable cause) {
