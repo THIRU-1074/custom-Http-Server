@@ -12,6 +12,6 @@ public final class BuiltInJsonMapper implements JsonMapper {
 
     @Override
     public <T> T read(byte[] json, Class<T> type) {
-        return Json.bind(Json.parse(new String(json, StandardCharsets.UTF_8)), type);
+        return Json.read(new String(json, StandardCharsets.UTF_8), type);
     }
 }

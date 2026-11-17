@@ -3,8 +3,17 @@
 Optional and advanced features. The core API is in llms.txt. One compact line per feature, grouped by area.
 
 ## Protocol
+Expect: 100-continue is answered before the body is read; declared length over maxBodyBytes gives 413 unread, other Expect values 417.
+JSON binds Instant, LocalDate/Time, LocalDateTime, Offset/ZonedDateTime, Duration (ISO), UUID, BigDecimal, enums (by name) and Optional (empty: omitted in records, null in Map/List); bad values give 400.
+req.parts() reads multipart/form-data in memory: Part name(), filename() (sanitised, null for fields), contentType(), bytes(), text(). Limits maxParts(10), maxPartBytes(1 MB), maxBodyBytes: 413; malformed 400; other types 415.
+config.trustProxy("10.0.0.0/8", "::1") (default none): only those peers get X-Forwarded-For (rightmost untrusted), -Proto, -Host applied to req.remoteAddress(), req.scheme(), req.host(); RateLimit.perIp then keys on the client.
 
 ## Response
+    app.views(Path.of("views"), "layout")  res.render("page", Map.of("u", user))   // page.html: {{x}} escaped, {{{x}}} raw, a.b, {{#each xs}}{{.}}{{/each}}, {{#if x}}, {{> part}}; layout prints {{{content}}}; names confined to root, mtime-cached
+    app.codec(new CsvCodec())  res.send(obj)   // BodyCodec{mediaType,read,write}: req.body(T) by Content-Type, res.send by Accept (JSON default); 415 unknown type once a codec exists, 406 no match
+    app.use(Static.serve("/", dir).spaFallback("index.html"))   // MIME map, index.html (dir gets 301 to /), single Range + If-Range (206/416), 304; SPA fallback opt-in, only for unrouted browser navigations (Accept text/html, no dot)
+    res.json(x).etag()  res.cache(Duration.ofMinutes(5))  res.noStore()   // weak ETag + 304 on If-None-Match; max-age; no-store. sendFile/Static do 304 (ETag, Last-Modified) automatically
+    app.use(Compress.gzip())              // opt-in; gzip(minBytes), default 1024; honours Accept-Encoding q=0, sets Vary; skips images/zip/encoded; BREACH: not for pages mixing secrets with user text
 
 ## Routing
 

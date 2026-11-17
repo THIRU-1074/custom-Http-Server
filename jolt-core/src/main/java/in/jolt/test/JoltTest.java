@@ -2,10 +2,10 @@ package in.jolt.test;
 
 import in.jolt.App;
 import in.jolt.HttpStatus;
-import in.jolt.Request;
 import in.jolt.Response;
 import in.jolt.internal.http.Codec;
 import in.jolt.internal.http.ConnectionHandler;
+import in.jolt.internal.http.TrustedProxies;
 import in.jolt.internal.json.Json;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -24,10 +24,12 @@ import java.util.TreeMap;
 public final class JoltTest {
 
     private final App app;
+    private final TrustedProxies trusted;
     private final Map<String, String> jar;
 
     private JoltTest(App app, Map<String, String> jar) {
         this.app = app;
+        this.trusted = TrustedProxies.from(app.config());
         this.jar = jar;
     }
 
@@ -75,12 +77,13 @@ public final class JoltTest {
     }
 
     public Call call(String method, String path) {
-        return new Call(app, jar, method, path);
+        return new Call(app, trusted, jar, method, path);
     }
 
     /** A request under construction. It is sent by {@link #expect(int)} or {@link #send()}. */
     public static final class Call {
         private final App app;
+        private final TrustedProxies trusted;
         private final Map<String, String> jar;
         private final String method;
         private final String path;
@@ -88,8 +91,14 @@ public final class JoltTest {
         private byte[] body = new byte[0];
         private String remoteAddress = "127.0.0.1";
 
-        private Call(App app, Map<String, String> jar, String method, String path) {
+        private Call(
+                App app,
+                TrustedProxies trusted,
+                Map<String, String> jar,
+                String method,
+                String path) {
             this.app = app;
+            this.trusted = trusted;
             this.jar = jar;
             this.method = method;
             this.path = path;
@@ -148,15 +157,14 @@ public final class JoltTest {
                                 .map(c -> c.getKey() + "=" + c.getValue())
                                 .collect(java.util.stream.Collectors.joining("; ")));
             }
-            var mapper = app.config().jsonMapper();
             var req =
-                    new Request(
+                    trusted.request(
+                            app.config(),
                             method,
                             Codec.percentDecode(rawPath, false),
                             rawQuery,
                             headers,
                             body,
-                            mapper,
                             remoteAddress);
             Response res = ConnectionHandler.respond(app, app.config(), req);
             if (jar != null) {

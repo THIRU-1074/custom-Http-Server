@@ -1,12 +1,26 @@
 package in.jolt;
 
+import in.jolt.internal.view.Views;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Fluent HTTP response. The body is buffered and written once the handler chain returns. */
@@ -21,6 +35,12 @@ public final class Response {
                             + "|SameSite=(?:Strict|Lax|None)"
                             + "|Secure|HttpOnly)");
 
+    private static final DateTimeFormatter HTTP_DATE =
+            DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
+                    .withZone(ZoneOffset.UTC);
+
+    private static final String JSON = "application/json";
+
     private final JsonMapper mapper;
     private final List<Map.Entry<String, String>> headers = new ArrayList<>();
     private int status = 200;
@@ -28,6 +48,7 @@ public final class Response {
     private boolean sent;
     private boolean typeExplicit;
     private boolean secureCookies;
+    private Request req;
     private long maxFileBytes = 10L * 1024 * 1024;
 
     public Response(JsonMapper mapper) {
@@ -102,12 +123,83 @@ public final class Response {
         return this;
     }
 
+    /** Sets a weak {@code ETag} from the body and answers 304 if the request's validators match. */
+    public Response etag() {
+        String tag = "W/\"" + Long.toHexString(body.length) + "-" + digest(body) + "\"";
+        header("ETag", tag);
+        if (notModified(null, tag)) {
+            status = 304;
+            body = new byte[0];
+        }
+        return this;
+    }
+
+    /** Sets {@code Cache-Control: max-age} to the whole seconds of {@code ttl}. */
+    public Response cache(Duration ttl) {
+        if (ttl.isNegative()) {
+            throw new IllegalArgumentException("ttl must not be negative");
+        }
+        return header("Cache-Control", "max-age=" + ttl.toSeconds());
+    }
+
+    /** Sets {@code Cache-Control: no-store}. */
+    public Response noStore() {
+        return header("Cache-Control", "no-store");
+    }
+
     public Response json(Object value) {
         return send(mapper.write(value), "application/json; charset=utf-8");
     }
 
+    /**
+     * Sends {@code value} in the representation the request's {@code Accept} header prefers: JSON
+     * unless a registered {@link BodyCodec} fits better; {@code byte[]} is sent as is.
+     *
+     * @throws HttpException 406 if no representation is acceptable
+     */
+    public Response send(Object value) {
+        if (value instanceof byte[] bytes) {
+            return send(bytes);
+        }
+        List<BodyCodec> codecs = req == null ? List.of() : req.codecs();
+        List<String> offers = new ArrayList<>();
+        boolean json = codecs.stream().noneMatch(c -> c.mediaType().equalsIgnoreCase(JSON));
+        if (json) {
+            offers.add(JSON);
+        }
+        codecs.forEach(c -> offers.add(c.mediaType().toLowerCase(Locale.ROOT)));
+        if (!codecs.isEmpty()) {
+            addVary("Accept");
+        }
+        int i = Negotiate.pick(req == null ? null : req.header("Accept"), offers);
+        if (i < 0) {
+            throw new HttpException(HttpStatus.NOT_ACCEPTABLE, "Not Acceptable");
+        }
+        if (json && i == 0) {
+            return json(value);
+        }
+        BodyCodec codec = codecs.get(json ? i - 1 : i);
+        return send(codec.write(value), codec.mediaType());
+    }
+
     public Response text(String s) {
         return send(s.getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
+    }
+
+    /**
+     * Renders the template {@code name} under the {@link App#views(Path) views root} as HTML.
+     * {@code {{x}}} is escaped, {@code {{{x}}}} is raw, dotted paths and {@code #each}, {@code #if}
+     * and {@code {{> partial}}} are supported.
+     *
+     * @throws IllegalStateException if no views root is configured
+     * @throws IllegalArgumentException if the template is missing, malformed or outside the root
+     */
+    public Response render(String name, Map<String, ?> model) {
+        Views views = req == null ? null : req.views();
+        if (views == null) {
+            throw new IllegalStateException("No views root: call app.views(root)");
+        }
+        return html(views.render(name, model));
     }
 
     public Response html(String s) {
@@ -150,10 +242,35 @@ public final class Response {
             if (!Files.isRegularFile(file)) {
                 throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
             }
-            if (Files.size(file) > maxFileBytes) {
+            long size = Files.size(file);
+            if (size > maxFileBytes) {
                 throw new HttpException(HttpStatus.PAYLOAD_TOO_LARGE, "File too large");
             }
-            return send(Files.readAllBytes(file), contentType(file));
+            Instant modified = Files.getLastModifiedTime(file).toInstant();
+            String tag = "W/\"" + Long.toHexString(size) + "-" + modified.toEpochMilli() + "\"";
+            String type = contentType(file);
+            if (notModified(modified, tag)) {
+                validators(tag, modified);
+                status = 304;
+                return send(new byte[0], type);
+            }
+            long[] range = range(size, tag, modified);
+            if (range != null && range.length == 0) {
+                validators(tag, modified);
+                status = 416;
+                header("Content-Range", "bytes */" + size);
+                return send(new byte[0], type);
+            }
+            byte[] data =
+                    range == null
+                            ? Files.readAllBytes(file)
+                            : readRange(file, range[0], (int) (range[1] - range[0] + 1));
+            validators(tag, modified);
+            if (range != null) {
+                status = 206;
+                header("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + size);
+            }
+            return send(data, type);
         } catch (NoSuchFileException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         } catch (IOException e) {
@@ -169,6 +286,10 @@ public final class Response {
      *     unreachable or has a dotfile segment, 413 if it exceeds the size cap
      */
     public Response sendFile(Path root, String relative) {
+        return sendFile(locate(root, relative));
+    }
+
+    static Path locate(Path root, String relative) {
         if (relative.indexOf('\0') >= 0) {
             throw new HttpException(HttpStatus.FORBIDDEN, "Forbidden");
         }
@@ -194,7 +315,7 @@ public final class Response {
             if (!Files.isRegularFile(real)) {
                 throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
             }
-            return sendFile(real);
+            return real;
         } catch (java.nio.file.InvalidPathException | IOException e) {
             throw new HttpException(HttpStatus.NOT_FOUND, "Not Found");
         }
@@ -211,6 +332,162 @@ public final class Response {
             }
         }
         return copy;
+    }
+
+    Response request(Request request) {
+        this.req = request;
+        return this;
+    }
+
+    private void validators(String tag, Instant modified) {
+        header("ETag", tag);
+        header("Last-Modified", HTTP_DATE.format(modified));
+        header("Accept-Ranges", "bytes");
+    }
+
+    private boolean ifRangeHolds(String tag, Instant modified) {
+        String v = req.header("If-Range");
+        if (v == null) {
+            return true;
+        }
+        v = v.strip();
+        if (v.startsWith("\"") || v.startsWith("W/")) {
+            return v.equals(tag);
+        }
+        try {
+            Instant t = DateTimeFormatter.RFC_1123_DATE_TIME.parse(v, Instant::from);
+            return !modified.truncatedTo(ChronoUnit.SECONDS).isAfter(t);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private long[] range(long size, String tag, Instant modified) {
+        String spec = req == null ? null : req.header("Range");
+        if (spec == null
+                || status != 200
+                || !ifRangeHolds(tag, modified)
+                || !(req.method().equals("GET") || req.method().equals("HEAD"))
+                || !spec.regionMatches(true, 0, "bytes=", 0, 6)
+                || spec.indexOf(',') >= 0) {
+            return null;
+        }
+        String r = spec.substring(6).strip();
+        int dash = r.indexOf('-');
+        if (dash < 0) {
+            return null;
+        }
+        try {
+            String from = r.substring(0, dash).strip();
+            String to = r.substring(dash + 1).strip();
+            if (from.isEmpty()) {
+                long n = num(to);
+                return n == 0 || size == 0
+                        ? new long[0]
+                        : new long[] {Math.max(0, size - n), size - 1};
+            }
+            long start = num(from);
+            long end = size - 1;
+            if (!to.isEmpty()) {
+                long last = num(to);
+                if (last < start) {
+                    return null;
+                }
+                end = Math.min(last, end);
+            }
+            return start >= size ? new long[0] : new long[] {start, end};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static long num(String digits) {
+        for (int i = 0; i < digits.length(); i++) {
+            if (digits.charAt(i) < '0' || digits.charAt(i) > '9') {
+                throw new NumberFormatException(digits);
+            }
+        }
+        return Long.parseLong(digits);
+    }
+
+    private static byte[] readRange(Path file, long start, int length) throws IOException {
+        try (var ch = FileChannel.open(file, StandardOpenOption.READ)) {
+            ByteBuffer buf = ByteBuffer.allocate(length);
+            ch.position(start);
+            while (buf.hasRemaining() && ch.read(buf) >= 0) {
+                // keep reading until the range is full or the file ends
+            }
+            return buf.array();
+        }
+    }
+
+    private boolean notModified(Instant lastModified, String tag) {
+        if (req == null
+                || status != 200
+                || !(req.method().equals("GET") || req.method().equals("HEAD"))) {
+            return false;
+        }
+        String none = req.header("If-None-Match");
+        if (none != null) {
+            return matchesTag(none, tag);
+        }
+        String since = req.header("If-Modified-Since");
+        if (since == null || lastModified == null) {
+            return false;
+        }
+        try {
+            Instant t = DateTimeFormatter.RFC_1123_DATE_TIME.parse(since, Instant::from);
+            return !lastModified.truncatedTo(ChronoUnit.SECONDS).isAfter(t);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private static boolean matchesTag(String header, String tag) {
+        String mine = tag.startsWith("W/") ? tag.substring(2) : tag;
+        for (String candidate : header.split(",")) {
+            String c = candidate.strip();
+            if (c.equals("*") || (c.startsWith("W/") ? c.substring(2) : c).equals(mine)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String digest(byte[] bytes) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(bytes);
+            return HexFormat.of().formatHex(h, 0, 12);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    String headerValue(String name) {
+        for (var h : headers) {
+            if (h.getKey().equalsIgnoreCase(name)) {
+                return h.getValue();
+            }
+        }
+        return null;
+    }
+
+    Response replaceBody(byte[] bytes) {
+        body = bytes;
+        return this;
+    }
+
+    Response addVary(String token) {
+        String existing = headerValue("Vary");
+        if (existing == null || existing.isBlank()) {
+            return header("Vary", token);
+        }
+        for (String t : existing.split(",")) {
+            if (t.strip().equals("*") || t.strip().equalsIgnoreCase(token)) {
+                return this;
+            }
+        }
+        return header("Vary", existing + ", " + token);
     }
 
     public int statusCode() {
@@ -296,20 +573,33 @@ public final class Response {
     }
 
     private static String contentType(Path file) {
-        String name = file.getFileName().toString().toLowerCase();
+        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
         int dot = name.lastIndexOf('.');
         return switch (dot < 0 ? "" : name.substring(dot + 1)) {
             case "html", "htm" -> "text/html; charset=utf-8";
             case "css" -> "text/css; charset=utf-8";
-            case "js" -> "text/javascript; charset=utf-8";
-            case "json" -> "application/json; charset=utf-8";
+            case "js", "mjs" -> "text/javascript; charset=utf-8";
+            case "json", "map" -> "application/json; charset=utf-8";
             case "txt" -> "text/plain; charset=utf-8";
+            case "csv" -> "text/csv; charset=utf-8";
+            case "xml" -> "application/xml; charset=utf-8";
+            case "svg" -> "image/svg+xml";
             case "png" -> "image/png";
             case "jpg", "jpeg" -> "image/jpeg";
             case "gif" -> "image/gif";
-            case "svg" -> "image/svg+xml";
+            case "webp" -> "image/webp";
+            case "avif" -> "image/avif";
             case "ico" -> "image/x-icon";
+            case "woff" -> "font/woff";
+            case "woff2" -> "font/woff2";
+            case "ttf" -> "font/ttf";
+            case "otf" -> "font/otf";
             case "pdf" -> "application/pdf";
+            case "zip" -> "application/zip";
+            case "mp3" -> "audio/mpeg";
+            case "mp4" -> "video/mp4";
+            case "webm" -> "video/webm";
+            case "wasm" -> "application/wasm";
             default -> "application/octet-stream";
         };
     }

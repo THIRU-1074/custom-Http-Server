@@ -1,7 +1,9 @@
 package in.jolt;
 
+import in.jolt.internal.http.TrustedProxies;
 import in.jolt.internal.json.BuiltInJsonMapper;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,7 +21,11 @@ public record JoltConfig(
         int maxHeaderCount,
         boolean secureCookies,
         long maxStaticFileBytes,
-        String bindAddress) {
+        String bindAddress,
+        int maxPartBytes,
+        int maxParts,
+        List<String> trustedProxies,
+        boolean problemJson) {
 
     public static JoltConfig defaults() {
         return new JoltConfig(
@@ -34,7 +40,11 @@ public record JoltConfig(
                 100,
                 false,
                 10L * 1024 * 1024,
-                "127.0.0.1");
+                "127.0.0.1",
+                1024 * 1024,
+                10,
+                List.of(),
+                false);
     }
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
@@ -106,7 +116,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxHeaderBytes(int v) {
@@ -122,7 +136,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxBodyBytes(int v) {
@@ -138,7 +156,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxRequestsPerConnection(int v) {
@@ -154,7 +176,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig readTimeout(Duration v) {
@@ -170,7 +196,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig keepAliveTimeout(Duration v) {
@@ -186,7 +216,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig jsonMapper(JsonMapper v) {
@@ -202,7 +236,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxRequestLineBytes(int v) {
@@ -218,7 +256,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxHeaderCount(int v) {
@@ -234,7 +276,11 @@ public record JoltConfig(
                 v,
                 secureCookies,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig secureCookies(boolean v) {
@@ -250,7 +296,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 v,
                 maxStaticFileBytes,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     public JoltConfig maxStaticFileBytes(long v) {
@@ -266,7 +316,11 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 v,
-                bindAddress);
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
     }
 
     /**
@@ -286,6 +340,118 @@ public record JoltConfig(
                 maxHeaderCount,
                 secureCookies,
                 maxStaticFileBytes,
+                v,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
+                problemJson);
+    }
+
+    /**
+     * Largest accepted multipart part, in bytes. Defaults to 1 MB; larger parts get 413.
+     *
+     * @throws IllegalArgumentException if {@code v} is not positive
+     */
+    public JoltConfig maxPartBytes(int v) {
+        if (v <= 0) {
+            throw new IllegalArgumentException("maxPartBytes must be positive, got: " + v);
+        }
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                v,
+                maxParts,
+                trustedProxies,
+                problemJson);
+    }
+
+    /**
+     * Most parts accepted in one multipart body. Defaults to 10; more get 413.
+     *
+     * @throws IllegalArgumentException if {@code v} is not positive
+     */
+    public JoltConfig maxParts(int v) {
+        if (v <= 0) {
+            throw new IllegalArgumentException("maxParts must be positive, got: " + v);
+        }
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                v,
+                trustedProxies,
+                problemJson);
+    }
+
+    /**
+     * Peers (IP addresses or CIDR blocks such as {@code 10.0.0.0/8}) whose {@code X-Forwarded-For},
+     * {@code X-Forwarded-Proto} and {@code X-Forwarded-Host} headers are honoured. Default: none.
+     *
+     * @throws IllegalArgumentException if an entry is not an IP literal or CIDR block
+     */
+    public JoltConfig trustProxy(String... cidrsOrAddresses) {
+        List<String> specs = List.of(cidrsOrAddresses);
+        TrustedProxies.of(specs);
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                specs,
+                problemJson);
+    }
+
+    /**
+     * Answers errors as {@code application/problem+json} (RFC 9457: type, title, status, detail,
+     * plus {@code errors} for validation) instead of plain text. Off by default.
+     */
+    public JoltConfig problemJson(boolean v) {
+        return new JoltConfig(
+                maxConnections,
+                maxHeaderBytes,
+                maxBodyBytes,
+                maxRequestsPerConnection,
+                readTimeout,
+                keepAliveTimeout,
+                jsonMapper,
+                maxRequestLineBytes,
+                maxHeaderCount,
+                secureCookies,
+                maxStaticFileBytes,
+                bindAddress,
+                maxPartBytes,
+                maxParts,
+                trustedProxies,
                 v);
     }
 }
