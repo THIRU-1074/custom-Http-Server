@@ -1,0 +1,23 @@
+# ADR 0010: Transport and observability API growth
+
+Status: accepted
+
+## Context
+
+Four gaps sent users to a reverse proxy or a second framework for basics: serving HTTPS (#8), streaming responses and Server-Sent Events (#10), WebSocket (#11) and health and metrics endpoints (#30). Constitution rules 3 and 6 require an ADR for public API growth.
+
+## Decision
+
+All JDK-only, opt-in, and free of per-request cost for apps that do not use them (one null check at most, and only per connection).
+
+1. TLS: `JoltConfig.tls(SSLContext)` and `tls(Path keystore, char[] password)` (PKCS12). `listen` then uses an `SSLServerSocket` limited to TLS 1.2 and 1.3 and AEAD (GCM, ChaCha20) suites. The handshake runs on the connection thread under the read timeout; a plain-HTTP client on a TLS port is dropped. `req.scheme()` is `https`, so `SecurityHeaders.hsts` works unchanged. A reverse proxy remains the usual production route; no client certificates, ALPN or reloading.
+2. Streaming and SSE: `Response.stream()` returns a `ResponseStream` (chunked, written immediately on the connection's virtual thread) and `Response.sse()` an `EventStream` (`event`, `comment`, `retry`). Both commit the headers when called and end the connection when the handler returns. A write to a gone client throws `IOException`. `JoltConfig.streamTimeouts(idle, max)` (60 s, 1 h) bounds a stream: a shared daemon timer closes the socket and interrupts the handler thread on expiry, so a stalled client cannot pin a thread, including one blocked in a write. `Response` only gains a connection reference and three methods; the logic lives in new classes. Not available in `JoltTest` (no socket).
+3. WebSocket: `Router.ws(path, WebSocketHandler)` registers a GET route, so middleware (authentication, rate limits) runs before the upgrade, and returns a `WebSocketRoute` with `origins(...)`. `WebSocketHandler` has default-method callbacks plus `WebSocketHandler.text(...)` for lambdas; `WebSocketSession` offers `send`, `ping`, `close`, `request`. RFC 6455 handling: masking required, fragmentation, ping/pong, close handshake, strict UTF-8, close code 1009 over `JoltConfig.wsLimits(frame, message)` (64 KB, 1 MB). An `Origin` header must match `Host` unless an allowlist is given; requests without `Origin` pass. The server pings an idle connection after the stream idle time and drops a silent one after twice that. No extensions, subprotocols or compression.
+4. Observability: `App.exposeMetrics()` and `exposeMetrics(Middleware guard)` add `GET /_jolt/health` and `GET /_jolt/metrics` (Prometheus text) fed by `LongAdder` counters from one middleware plus per-connection hooks in `Server`. Label values come from fixed sets (method, status class, bucket bound), never from requests. The guard protects the metrics route only; health says only `UP` and stays open for orchestrator probes. Nothing is registered or counted unless called. Errors thrown as non-`HttpException` count as 500 even if an error mapper later chooses another status.
+
+## Consequences
+
+- Public API grows by `ResponseStream`, `EventStream`, `WebSocketHandler`, `WebSocketSession`, `WebSocketRoute`, three `Response` methods plus `host`, one `Router` method, two `App` methods and four `JoltConfig` methods, at one `llms-extras.txt` line per feature; `llms.txt` is untouched.
+- `JoltConfig` gains five record components (`tls`, `streamIdleTimeout`, `streamMaxDuration`, `wsMaxFrameBytes`, `wsMaxMessageBytes`); the canonical constructor is not a stable API.
+- Open streams and WebSockets delay `Server.close()` up to its 5 s grace period, then are interrupted.
+- The ordinary request path gains one field store (`res.host`) and one boolean check after dispatch; `perf-guard.py` is to be run by the maintainer.
