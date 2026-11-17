@@ -83,7 +83,7 @@ Closest class or interface wins (ties: first registered); HttpException keeps it
 Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper interface.
 
 ## Introspection
-    app.routes()                          // List<Route(method, path, tool)>
+    app.routes()                          // List<Route(method, path, tool, input)>
     app.exposeRoutes();                   // opt-in GET /_jolt/routes and /_jolt/openapi.json
     String spec = app.openApi();          // minimal OpenAPI 3.1 JSON
 
@@ -92,7 +92,7 @@ Over limits: 431/413/408/503 respond automatically. Swap JSON via the JsonMapper
     Mcp.expose(app, "/mcp", McpOptions.defaults()
         .allowOrigins("http://localhost:3000")   // Origin allowlist, else 403
         .auth(jwt.middleware()));                // optional guard on /mcp
-Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path params by name, "query" object, "body" object. Calls run through normal middleware; Authorization, Cookie, X-Request-Id and traceparent are forwarded. Tool name = method_path, e.g. get_todos_id.
+Streamable HTTP JSON-RPC: initialize, tools/list, tools/call. Tool args: path params by name, "query" object, "body" object (typed routes advertise the record's JSON Schema; OpenAPI too). JSON object replies also come back as structuredContent. Calls run through normal middleware; Authorization, Cookie, X-Request-Id and traceparent are forwarded. Tool name = method_path, e.g. get_todos_id.
 
 ## Complete example
     record Todo(String title) {}

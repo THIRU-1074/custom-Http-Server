@@ -41,6 +41,7 @@ class McpTest {
                 .tool("Fetch a todo by id");
         app.post("/todos", (req, res) -> res.status(201).json(req.body(Todo.class)))
                 .tool("Create a todo");
+        app.put("/todos/:id", Todo.class, (params, todo) -> todo).tool("Replace a todo");
         app.get("/secret", (req, res) -> res.text("hidden"));
         Mcp.expose(app, "/mcp", McpOptions.defaults().allowOrigins("http://localhost:3000"));
         server = app.listen(0);
@@ -105,6 +106,30 @@ class McpTest {
                         .body();
         assertTrue(ok.contains("\"isError\":false"), ok);
         assertTrue(ok.contains("title"), ok);
+    }
+
+    @Test
+    void typedRouteAdvertisesRecordSchemaAsRequiredBody() throws Exception {
+        String body = rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}").body();
+        assertTrue(
+                body.contains(
+                        "\"body\":{\"type\":\"object\",\"properties\":{\"title\":"
+                                + "{\"type\":\"string\"}},\"required\":[\"title\"]}"),
+                body);
+        assertTrue(body.contains("\"required\":[\"id\",\"body\"]"), body);
+        assertTrue(body.contains("JSON request body"), body);
+    }
+
+    @Test
+    void jsonObjectResultsCarryStructuredContent() throws Exception {
+        String call =
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"put_todos_id\",\"arguments\":{\"id\":\"1\","
+                        + "\"body\":{\"title\":\"y\"}}}}";
+        String ok = rpc(call, "Authorization", "Bearer ok").body();
+        assertTrue(ok.contains("\"structuredContent\":{\"title\":\"y\"}"), ok);
+        String denied = rpc(call).body();
+        assertFalse(denied.contains("structuredContent"), denied);
     }
 
     @Test

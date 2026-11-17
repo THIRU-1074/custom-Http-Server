@@ -15,7 +15,8 @@ jolt-core/                   zero runtime dependencies; the only module users mu
   in.jolt.internal.http      HttpParser, ConnectionHandler, ResponseWriter, Limits, Replies, Tls,
                              TrustedProxies, Metrics, StreamGuard, WebSocketConnection
   in.jolt.internal.routing   RouteTrie, Suggest (did-you-mean 404)
-  in.jolt.internal.json      Json, BuiltInJsonMapper (behind the JsonMapper SPI)
+  in.jolt.internal.json      Json, BuiltInJsonMapper (behind the JsonMapper SPI), Schema
+                             (JSON Schema of typed-route records for MCP and OpenAPI)
   in.jolt.internal.limit     FixedWindow (shared by RateLimit and MCP budgets)
   in.jolt.internal.openapi   OpenApi
   in.jolt.internal.view      Views (templating)

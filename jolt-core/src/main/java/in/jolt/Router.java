@@ -29,7 +29,7 @@ public class Router {
         List<Route> all = new ArrayList<>(defs);
         for (Mount m : mounts) {
             for (Route r : m.router.routes()) {
-                all.add(new Route(r.method(), m.prefix + r.path(), r.tool()));
+                all.add(r.under(m.prefix));
             }
         }
         return List.copyOf(all);
@@ -83,15 +83,15 @@ public class Router {
 
     /** Typed POST: binds the JSON body to {@code in} (400 if invalid), then writes the result. */
     public <I, O> Router post(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return post(path, write(in, fn));
+        return post(path, write(in, fn)).input(in);
     }
 
     public <I, O> Router put(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return put(path, write(in, fn));
+        return put(path, write(in, fn)).input(in);
     }
 
     public <I, O> Router patch(String path, Class<I> in, Typed.Write<I, O> fn) {
-        return patch(path, write(in, fn));
+        return patch(path, write(in, fn)).input(in);
     }
 
     /** Typed DELETE: runs {@code fn} and answers 204. */
@@ -160,15 +160,15 @@ public class Router {
     }
 
     public <I, O> Router post(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
-        return post(path, chain(write(in, fn), mw));
+        return post(path, chain(write(in, fn), mw)).input(in);
     }
 
     public <I, O> Router put(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
-        return put(path, chain(write(in, fn), mw));
+        return put(path, chain(write(in, fn), mw)).input(in);
     }
 
     public <I, O> Router patch(String path, Middleware mw, Class<I> in, Typed.Write<I, O> fn) {
-        return patch(path, chain(write(in, fn), mw));
+        return patch(path, chain(write(in, fn), mw)).input(in);
     }
 
     public Router delete(String path, Middleware mw, Typed.Run fn) {
@@ -210,6 +210,13 @@ public class Router {
         }
     }
 
+    private Router input(Class<?> in) {
+        int last = defs.size() - 1;
+        Route r = defs.get(last);
+        defs.set(last, new Route(r.method(), r.path(), r.tool(), in));
+        return this;
+    }
+
     /** Tags the most recently registered route as an MCP tool with this description. */
     public Router tool(String description) {
         if (defs.isEmpty()) {
@@ -217,7 +224,7 @@ public class Router {
         }
         int last = defs.size() - 1;
         Route r = defs.get(last);
-        defs.set(last, new Route(r.method(), r.path(), description));
+        defs.set(last, new Route(r.method(), r.path(), description, r.input()));
         return this;
     }
 

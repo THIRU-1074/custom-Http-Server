@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -156,7 +157,10 @@ public final class Mcp {
                 required.add(p);
             }
             props.put("query", Map.of("type", "object", "description", "Query parameters"));
-            if (BODY_METHODS.contains(r.method())) {
+            if (r.input() != null) {
+                props.put("body", r.inputSchema());
+                required.add("body");
+            } else if (BODY_METHODS.contains(r.method())) {
                 props.put("body", Map.of("type", "object", "description", "JSON request body"));
             }
             out.add(
@@ -305,13 +309,34 @@ public final class Mcp {
         if (failed) {
             text = "HTTP " + out.statusCode() + ": " + text;
         }
-        return result(
-                id,
-                Map.of(
-                        "content",
-                        List.of(Map.of("type", "text", "text", text)),
-                        "isError",
-                        failed));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("content", List.of(Map.of("type", "text", "text", text)));
+        Object structured = failed ? null : structured(out);
+        if (structured != null) {
+            payload.put("structuredContent", structured);
+        }
+        payload.put("isError", failed);
+        return result(id, payload);
+    }
+
+    private Object structured(Response res) {
+        boolean json =
+                res.headers().stream()
+                        .anyMatch(
+                                h ->
+                                        h.getKey().equalsIgnoreCase("Content-Type")
+                                                && h.getValue()
+                                                        .toLowerCase(Locale.ROOT)
+                                                        .startsWith("application/json"));
+        if (!json) {
+            return null;
+        }
+        try {
+            Object parsed = mapper.read(res.body(), Object.class);
+            return parsed instanceof Map<?, ?> ? parsed : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private String agent(Request req) {
