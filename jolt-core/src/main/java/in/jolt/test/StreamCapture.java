@@ -61,7 +61,7 @@ final class StreamCapture implements Live, StreamSink {
 
             @Override
             public Metrics metrics() {
-                return app.metrics();
+                return app.dispatcher().metrics();
             }
         };
     }

@@ -37,6 +37,7 @@ RefreshTokens.of(jwt) (.accessTtl 15m, .refreshTtl 30d, .store(RefreshStore), .c
 
 ## Observability
 app.exposeMetrics() (opt-in, idempotent) serves GET /_jolt/health ({"status":"UP"}) and /_jolt/metrics (Prometheus text: requests by method and status class, final status after error mappers, latency histogram without streams, connections, streams, WebSocket gauges, body bytes; no paths or details); exposeMetrics(guard) protects /_jolt/metrics with a Middleware.
+app.metrics().counter(name, help[, labelMap]) -> Counter(increment, add(n>=0), value) and .gauge(name, help[, labelMap], LongSupplier) add series after Jolt's own (names [a-zA-Z_:][a-zA-Z0-9_:]*, not jolt_*; duplicate name+labels or counter/gauge clash IllegalStateException; a throwing gauge is skipped); register before or after exposeMetrics/listen. app.health(name, Supplier<Boolean>[, Duration 2s]) adds checks to /_jolt/health: all true 200 {"status":"UP","checks":{..}}, else 503 with DOWN (false, null, throw, timeout; no error details); no checks keeps {"status":"UP"}.
 app.use(RequestId.middleware()): X-Request-Id kept if [A-Za-z0-9._-]{1,64}, else a random 16-hex id; req.id() (null without it), echoed on the response and appended to Logger.requests() lines.
 
 ## Dev and tooling
