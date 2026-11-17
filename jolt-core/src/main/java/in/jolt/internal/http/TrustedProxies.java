@@ -2,8 +2,6 @@ package in.jolt.internal.http;
 
 import in.jolt.JoltConfig;
 import in.jolt.Request;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 
@@ -148,31 +146,125 @@ public final class TrustedProxies {
         return new Net(bytes, bits);
     }
 
-    /** Address bytes of an IPv4 or IPv6 literal, or null. Never resolves names. */
-    private static byte[] literal(String s) {
-        if (s.isEmpty() || s.length() > 45) {
+    /**
+     * Address bytes of an IPv4 or IPv6 literal (an optional {@code %scope} is ignored), or null.
+     * Parsed by hand: no name service is ever consulted.
+     */
+    static byte[] literal(String s) {
+        if (s.indexOf(':') < 0) {
+            return ipv4(s);
+        }
+        int pct = s.indexOf('%');
+        String addr = pct < 0 ? s : s.substring(0, pct);
+        if (pct >= 0 && !validScope(s.substring(pct + 1))) {
             return null;
         }
-        boolean colon = false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == ':') {
-                colon = true;
-            } else if (c != '.' && (c > 'f' || Character.digit(c, 16) < 0)) {
+        return ipv6(addr);
+    }
+
+    private static boolean validScope(String scope) {
+        if (scope.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < scope.length(); i++) {
+            char c = scope.charAt(i);
+            boolean ok =
+                    c < 128 && (Character.isLetterOrDigit(c) || c == '_' || c == '-' || c == '.');
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static byte[] ipv4(String s) {
+        byte[] out = new byte[4];
+        int octet = 0;
+        int digits = 0;
+        int value = 0;
+        for (int i = 0; i <= s.length(); i++) {
+            char c = i < s.length() ? s.charAt(i) : '.';
+            if (c >= '0' && c <= '9') {
+                if (digits > 0 && value == 0 || ++digits > 3) {
+                    return null;
+                }
+                value = value * 10 + (c - '0');
+            } else if (c == '.' && digits > 0 && value <= 255 && octet < 4) {
+                out[octet++] = (byte) value;
+                digits = 0;
+                value = 0;
+            } else {
                 return null;
             }
         }
-        if (!colon && s.chars().anyMatch(c -> c != '.' && (c < '0' || c > '9'))) {
+        return octet == 4 ? out : null;
+    }
+
+    private static byte[] ipv6(String s) {
+        int dbl = s.indexOf("::");
+        if (dbl >= 0 && s.indexOf("::", dbl + 1) >= 0) {
             return null;
         }
-        if (!colon && s.split("\\.", -1).length != 4) {
+        int[] head = groups(dbl < 0 ? s : s.substring(0, dbl), dbl < 0);
+        int[] tail = dbl < 0 ? new int[0] : groups(s.substring(dbl + 2), true);
+        if (head == null || tail == null) {
             return null;
         }
-        try {
-            return InetAddress.getByName(s).getAddress();
-        } catch (UnknownHostException | RuntimeException e) {
+        int total = head.length + tail.length;
+        if (dbl < 0 ? total != 8 : total > 7) {
             return null;
         }
+        int[] all = new int[8];
+        System.arraycopy(head, 0, all, 0, head.length);
+        System.arraycopy(tail, 0, all, 8 - tail.length, tail.length);
+        boolean mapped = all[5] == 0xFFFF;
+        for (int i = 0; i < 5; i++) {
+            mapped &= all[i] == 0;
+        }
+        byte[] out = new byte[mapped ? 4 : 16];
+        for (int i = mapped ? 6 : 0; i < 8; i++) {
+            int at = mapped ? (i - 6) * 2 : i * 2;
+            out[at] = (byte) (all[i] >> 8);
+            out[at + 1] = (byte) all[i];
+        }
+        return out;
+    }
+
+    /**
+     * Hex groups of one side of an IPv6 address; the last may be a dotted IPv4. Null if invalid.
+     */
+    private static int[] groups(String part, boolean allowV4Last) {
+        if (part.isEmpty()) {
+            return new int[0];
+        }
+        String[] texts = part.split(":", -1);
+        int[] out = new int[texts.length + 1];
+        int n = 0;
+        for (int i = 0; i < texts.length; i++) {
+            String t = texts[i];
+            if (allowV4Last && i == texts.length - 1 && t.indexOf('.') >= 0) {
+                byte[] v4 = ipv4(t);
+                if (v4 == null) {
+                    return null;
+                }
+                out[n++] = (v4[0] & 0xFF) << 8 | v4[1] & 0xFF;
+                out[n++] = (v4[2] & 0xFF) << 8 | v4[3] & 0xFF;
+                break;
+            }
+            if (t.isEmpty() || t.length() > 4) {
+                return null;
+            }
+            int v = 0;
+            for (int j = 0; j < t.length(); j++) {
+                int d = Character.digit(t.charAt(j), 16);
+                if (d < 0 || t.charAt(j) > 'f') {
+                    return null;
+                }
+                v = v * 16 + d;
+            }
+            out[n++] = v;
+        }
+        return java.util.Arrays.copyOf(out, n);
     }
 
     private static String last(String header) {

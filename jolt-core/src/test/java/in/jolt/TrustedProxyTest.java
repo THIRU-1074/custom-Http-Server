@@ -107,7 +107,18 @@ class TrustedProxyTest {
     void malformedForwardedValuesAreIgnored() {
         for (String bad :
                 new String[] {
-                    "not-an-ip", "1.2.3.4, evil.example.com", "", "1.2.3", "1.2.3.4:80x"
+                    "not-an-ip",
+                    "1.2.3.4, evil.example.com",
+                    "",
+                    "1.2.3",
+                    "1.2.3.4:80x",
+                    "999.1.1.1",
+                    "1..2.3",
+                    "1.2.3.",
+                    "1.2.3.4.5",
+                    "01.2.3.4x",
+                    "localhost",
+                    "::g"
                 }) {
             assertEquals(
                     "10.0.0.1|http|null", seen(TRUST_10, "10.0.0.1", "X-Forwarded-For", bad), bad);
@@ -131,7 +142,20 @@ class TrustedProxyTest {
     @Test
     void invalidConfigurationIsRejected() {
         for (String bad :
-                new String[] {"nope", "10.0.0.0/33", "10.0.0.0/x", "::1/129", "", "example.com"}) {
+                new String[] {
+                    "nope",
+                    "10.0.0.0/33",
+                    "10.0.0.0/x",
+                    "::1/129",
+                    "",
+                    "example.com",
+                    "999.1.1.1",
+                    "1..2.3",
+                    "1.2.3.",
+                    "10.0.0.0/-1",
+                    "localhost",
+                    "1.2.3.4/"
+                }) {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> JoltConfig.defaults().trustProxy(bad),
