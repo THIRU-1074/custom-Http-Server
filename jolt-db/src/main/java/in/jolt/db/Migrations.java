@@ -184,13 +184,8 @@ public final class Migrations {
                         "bad migration name " + src.file() + ", expected V<number>__<name>.sql");
             }
             long version = Long.parseLong(m.group(1));
-            Script script =
-                    new Script(
-                            version,
-                            m.group(2),
-                            src.file(),
-                            new String(src.bytes(), StandardCharsets.UTF_8),
-                            sha256(src.bytes()));
+            String text = normalize(new String(src.bytes(), StandardCharsets.UTF_8));
+            Script script = new Script(version, m.group(2), src.file(), text, sha256(text));
             Script clash = byVersion.putIfAbsent(version, script);
             if (clash != null) {
                 throw new DbException(
@@ -205,8 +200,14 @@ public final class Migrations {
         return new ArrayList<>(byVersion.values());
     }
 
-    private static String sha256(byte[] bytes) {
+    static String normalize(String text) {
+        String s = text.startsWith("﻿") ? text.substring(1) : text;
+        return s.replace("\r\n", "\n").replace('\r', '\n').stripTrailing();
+    }
+
+    private static String sha256(String text) {
         try {
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);

@@ -120,6 +120,16 @@ class MigrationsTest {
     }
 
     @Test
+    void lineEndingsBomAndTrailingWhitespaceDoNotChangeTheChecksum() throws IOException {
+        file("V1__a.sql", "﻿create table a(id integer);\r\ncreate table b(id integer);\r\n  \r\n");
+        assertEquals(1, Migrations.run(db, sql).size());
+        file("V1__a.sql", "create table a(id integer);\ncreate table b(id integer);");
+        assertEquals(List.of(), Migrations.run(db, sql));
+        file("V1__a.sql", "create table a(id integer);\rcreate table b(id integer);\n\n");
+        assertEquals(List.of(), Migrations.run(db, sql));
+    }
+
+    @Test
     void duplicateVersionFails() throws IOException {
         file("V1__a.sql", "create table a(id integer);");
         file("V01__b.sql", "create table b(id integer);");
