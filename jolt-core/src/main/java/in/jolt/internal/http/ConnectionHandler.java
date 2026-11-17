@@ -293,7 +293,7 @@ public final class ConnectionHandler implements Runnable {
                         p.body(),
                         peer == null ? null : peer.getHostAddress(),
                         socket instanceof SSLSocket);
-        return respond(dispatcher, config, req, this);
+        return respond(dispatcher, config, req, this, null);
     }
 
     /**
@@ -301,17 +301,27 @@ public final class ConnectionHandler implements Runnable {
      * the socket server and the in-memory test client so both behave identically.
      */
     public static Response respond(Dispatcher dispatcher, JoltConfig config, Request req) {
-        return respond(dispatcher, config, req, null);
+        return respond(dispatcher, config, req, null, null);
+    }
+
+    /** As {@link #respond(Dispatcher, JoltConfig, Request)}, with streams going to {@code live}. */
+    public static Response respond(
+            Dispatcher dispatcher, JoltConfig config, Request req, Live live) {
+        return respond(dispatcher, config, req, null, live);
     }
 
     private static Response respond(
-            Dispatcher dispatcher, JoltConfig config, Request req, ConnectionHandler host) {
+            Dispatcher dispatcher,
+            JoltConfig config,
+            Request req,
+            ConnectionHandler host,
+            Live live) {
         Metrics metrics = dispatcher.metrics();
         if (metrics == null) {
-            return serve(dispatcher, config, req, host);
+            return serve(dispatcher, config, req, host, live);
         }
         long start = System.nanoTime();
-        Response res = serve(dispatcher, config, req, host);
+        Response res = serve(dispatcher, config, req, host, live);
         if (host == null || !host.taken) {
             metrics.record(
                     req.method(),
@@ -324,19 +334,25 @@ public final class ConnectionHandler implements Runnable {
     }
 
     private static Response serve(
-            Dispatcher dispatcher, JoltConfig config, Request req, ConnectionHandler host) {
+            Dispatcher dispatcher,
+            JoltConfig config,
+            Request req,
+            ConnectionHandler host,
+            Live live) {
         var mapper = config.jsonMapper();
         Response res =
                 new Response(mapper)
                         .secureCookies(config.secureCookies())
                         .maxFileBytes(config.maxStaticFileBytes())
-                        .live(host == null ? null : host.wire);
+                        .live(host == null ? live : host.wire);
         try {
             dispatcher.dispatch(req, res);
             return res;
         } catch (Throwable t) {
-            if (host != null && host.taken) {
-                host.failed = true;
+            if (host == null ? res.isStreaming() : host.taken) {
+                if (host != null) {
+                    host.failed = true;
+                }
                 if (t instanceof IOException) {
                     LOG.log(System.Logger.Level.DEBUG, "Streaming connection ended", t);
                 } else {
