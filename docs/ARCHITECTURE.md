@@ -13,7 +13,7 @@ jolt-core/                   zero runtime dependencies; the only module users mu
                              SecurityHeaders, RateLimit, RequestId, Logger, BodyCodec, JsonMapper,
                              EventStream, ResponseStream, WebSocketHandler/Route/Session, Multipart
   in.jolt.internal.http      HttpParser, ConnectionHandler, ResponseWriter, Limits, Replies, Tls,
-                             TrustedProxies, Metrics, StreamGuard, WebSocketConnection
+                             TrustedProxies, Metrics, StreamGuard, WebSocketConnection, Poller
   in.jolt.internal.routing   RouteTrie, Suggest (did-you-mean 404)
   in.jolt.internal.json      Json, BuiltInJsonMapper (behind the JsonMapper SPI)
   in.jolt.internal.openapi   OpenApi
@@ -35,7 +35,7 @@ benchmarks/                  tokens, load, verify, guard, mcp
 
 1. `Jolt.create(config)` builds an `App` (a `Router` that can listen). `listen(port)` opens a `ServerSocket`, or a TLS one when `JoltConfig.tls` is set, binds to loopback by default, starts the accept loop and returns a `Server`.
 2. Each accepted connection acquires a permit from `Semaphore(maxConnections)`. Without a permit, the connection that has been idle longest (waiting for its next keep-alive request) is closed and its permit taken. If every connection has a request in flight, the new connection gets a 503 and is closed.
-3. A virtual thread (`newVirtualThreadPerTaskExecutor`) owns the connection and handles its requests one after another, which keeps HTTP/1.1 responses in order. Over TLS the handshake runs first. A connection closes after `keepAliveTimeout` idle, after `maxRequestsPerConnection`, or when the server is draining.
+3. A virtual thread (`newVirtualThreadPerTaskExecutor`) handles the connection's requests one after another, which keeps HTTP/1.1 responses in order. Between requests a plain-socket connection is parked in the `Poller` (one `Selector`, ADR 0026): its thread ends, and when the socket becomes readable the poller starts a new virtual thread that continues the same connection. Over TLS the handshake runs first and the connection's own thread waits instead, because an `SSLSocket` cannot be selected on. A connection closes after `keepAliveTimeout` idle, after `maxRequestsPerConnection`, or when the server is draining.
 4. `HttpParser` enforces the limits (request line, header bytes and count, body bytes), reads exactly `Content-Length` bytes or a chunked body, rejects request-smuggling vectors, and answers `Expect: 100-continue` once framing is valid. Malformed, oversize or slow input gets a 4xx (400, 408, 413, 414, 431 and others) and the connection closes.
 5. `TrustedProxies` builds the `Request`: `X-Forwarded-*` is applied only for peers listed in `trustProxy`.
 6. `App.dispatch` runs the global middleware (registered with `use`, in order) and then route resolution. `RouteTrie` matches method and path (static, then regex-constrained, then plain `:param`, then `*`) and binds parameters. No match gives a 404 with a did-you-mean hint; a known path with another method gives 405 with `Allow`. Route-level middleware and the handler are the last links. `HEAD` falls back to `GET`.
