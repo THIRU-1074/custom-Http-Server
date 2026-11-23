@@ -47,6 +47,6 @@ class ApiSurfaceTest {
         for (String leaked : new String[] {"in", "out", "socket", "take", "guard", "config"}) {
             assertTrue(!names.contains(leaked), leaked);
         }
-        assertEquals(Set.of("closeIfIdle", "reject", "respond", "run"), names);
+        assertEquals(Set.of("closeIfIdle", "idleSince", "reject", "respond", "run"), names);
     }
 }

@@ -10,6 +10,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -20,12 +21,15 @@ import javax.net.ssl.SSLServerSocket;
 
 /**
  * A running server. One virtual thread serves each connection, bounded by {@code maxConnections}.
+ * At the limit, the longest-idle keep-alive connection is closed to admit a new one; a new
+ * connection is refused with 503 only when every connection has a request in flight.
  */
 public final class Server implements AutoCloseable {
 
     private static final System.Logger LOG = System.getLogger("in.jolt");
     private static final long GRACE_SECONDS = 5;
     private static final long ACCEPT_BACKOFF_MS = 50;
+    private static final long RECLAIM_WAIT_MS = 100;
 
     private final JoltConfig config;
     private final ConnectionHandler.Dispatcher dispatcher;
@@ -169,7 +173,7 @@ public final class Server implements AutoCloseable {
                 }
                 continue;
             }
-            if (!permits.tryAcquire()) {
+            if (!permits.tryAcquire() && !reclaimIdle()) {
                 ConnectionHandler.reject(socket, config);
                 continue;
             }
@@ -192,6 +196,32 @@ public final class Server implements AutoCloseable {
                 release(handler);
                 handler.closeIfIdle();
             }
+        }
+    }
+
+    /**
+     * At the connection limit, closes the connection that has waited longest for its next request
+     * and takes its permit. False when every connection has a request in flight.
+     */
+    private boolean reclaimIdle() {
+        ConnectionHandler oldest = null;
+        long since = 0;
+        for (ConnectionHandler h : live) {
+            OptionalLong s = h.idleSince();
+            if (s.isPresent() && (oldest == null || s.getAsLong() - since < 0)) {
+                oldest = h;
+                since = s.getAsLong();
+            }
+        }
+        if (oldest == null) {
+            return false;
+        }
+        oldest.closeIfIdle();
+        try {
+            return permits.tryAcquire(RECLAIM_WAIT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

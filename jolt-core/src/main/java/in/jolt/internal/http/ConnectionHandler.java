@@ -15,6 +15,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.OptionalLong;
 import java.util.function.BooleanSupplier;
 import javax.net.ssl.SSLSocket;
 
@@ -48,6 +49,7 @@ public final class ConnectionHandler implements Runnable {
     private final BooleanSupplier draining;
     private final TrustedProxies trusted;
     private volatile boolean idle;
+    private volatile long idleSince;
     private final Live wire = new Wire();
     private OutputStream out;
     private InputStream in;
@@ -165,6 +167,11 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
+    /** When this connection began waiting for its next request; empty while one is in flight. */
+    public OptionalLong idleSince() {
+        return idle ? OptionalLong.of(idleSince) : OptionalLong.empty();
+    }
+
     /** Closes the socket if no request is in flight. */
     public void closeIfIdle() {
         if (idle) {
@@ -206,6 +213,7 @@ public final class ConnectionHandler implements Runnable {
             out = socket.getOutputStream();
             for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
                 socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());
+                idleSince = System.nanoTime();
                 idle = true;
                 if (draining.getAsBoolean()) {
                     return;

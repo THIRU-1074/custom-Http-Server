@@ -34,7 +34,7 @@ benchmarks/                  tokens, load, verify, guard, mcp
 ## Request lifecycle
 
 1. `Jolt.create(config)` builds an `App` (a `Router` that can listen). `listen(port)` opens a `ServerSocket`, or a TLS one when `JoltConfig.tls` is set, binds to loopback by default, starts the accept loop and returns a `Server`.
-2. Each accepted connection acquires a permit from `Semaphore(maxConnections)`. Without a permit the connection gets a 503 and is closed.
+2. Each accepted connection acquires a permit from `Semaphore(maxConnections)`. Without a permit, the connection that has been idle longest (waiting for its next keep-alive request) is closed and its permit taken. If every connection has a request in flight, the new connection gets a 503 and is closed.
 3. A virtual thread (`newVirtualThreadPerTaskExecutor`) owns the connection and handles its requests one after another, which keeps HTTP/1.1 responses in order. Over TLS the handshake runs first. A connection closes after `keepAliveTimeout` idle, after `maxRequestsPerConnection`, or when the server is draining.
 4. `HttpParser` enforces the limits (request line, header bytes and count, body bytes), reads exactly `Content-Length` bytes or a chunked body, rejects request-smuggling vectors, and answers `Expect: 100-continue` once framing is valid. Malformed, oversize or slow input gets a 4xx (400, 408, 413, 414, 431 and others) and the connection closes.
 5. `TrustedProxies` builds the `Request`: `X-Forwarded-*` is applied only for peers listed in `trustProxy`.
@@ -57,7 +57,7 @@ sequenceDiagram
     participant W as ResponseWriter
 
     C->>S: TCP connect
-    alt no free permit
+    alt no free permit and no idle connection to reclaim
         S-->>C: 503, close
     else permit acquired
         S->>V: start connection (TLS handshake if enabled)

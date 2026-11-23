@@ -429,10 +429,11 @@ class ServerTest {
     }
 
     @Test
-    void answers503WhenConnectionLimitIsReached() throws IOException {
+    void answers503WhenEveryConnectionHasARequestInFlight() throws IOException {
         server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
-        try (var first = new RawClient(server.port())) {
-            assertEquals("hello", first.get("/").text());
+        try (var busy = new RawClient(server.port())) {
+            busy.send("GET / HTTP/1.1\r\nHost: t\r\n");
+            sleep(200);
             try (var second = new RawClient(server.port())) {
                 Reply r = second.read();
                 assertEquals(503, r.status());
@@ -442,16 +443,50 @@ class ServerTest {
     }
 
     @Test
+    void idleConnectionIsClosedToAdmitANewOneAtTheLimit() throws IOException {
+        server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
+        try (var first = new RawClient(server.port())) {
+            assertEquals("hello", first.get("/").text());
+            try (var second = new RawClient(server.port())) {
+                assertEquals("hello", second.get("/").text());
+                assertTrue(first.isClosedByPeer());
+            }
+        }
+    }
+
+    @Test
+    void longestIdleConnectionIsTheOneClosedAtTheLimit() throws IOException {
+        server = echoApp(JoltConfig.defaults().maxConnections(2)).listen(0);
+        try (var older = new RawClient(server.port());
+                var newer = new RawClient(server.port())) {
+            assertEquals("hello", older.get("/").text());
+            sleep(50);
+            assertEquals("hello", newer.get("/").text());
+            try (var third = new RawClient(server.port())) {
+                assertEquals("hello", third.get("/").text());
+                assertTrue(older.isClosedByPeer());
+                assertEquals("hello", newer.get("/").text());
+            }
+        }
+    }
+
+    @Test
     @Timeout(15)
     void connectionFloodBeyondTheCapIsAnswered503AndServerRecovers() throws IOException {
         int cap = 20;
-        server = echoApp(JoltConfig.defaults().maxConnections(cap)).listen(0);
+        server =
+                echoApp(
+                                JoltConfig.defaults()
+                                        .maxConnections(cap)
+                                        .readTimeout(Duration.ofSeconds(30)))
+                        .listen(0);
         List<RawClient> holders = new java.util.ArrayList<>();
         for (int i = 0; i < cap; i++) {
             RawClient c = new RawClient(server.port());
-            assertEquals("hello", c.get("/").text());
+            c.send("GET / HTTP/1.1\r\nHost: t\r\n");
             holders.add(c);
         }
+        sleep(300);
         int rejected = 0;
         for (int i = 0; i < 500; i++) {
             try (var c = new RawClient(server.port())) {
@@ -462,7 +497,7 @@ class ServerTest {
         }
         assertEquals(500, rejected);
         for (RawClient c : holders) {
-            assertEquals("hello", c.get("/").text());
+            assertEquals("hello", c.send("\r\n").read().text());
             c.close();
         }
         sleep(100);
