@@ -407,6 +407,68 @@ class ServerTest {
         }
     }
 
+    private void awaitParked(int expected) {
+        for (int i = 0; i < 300 && server.parkedConnections() != expected; i++) {
+            sleep(10);
+        }
+        assertEquals(expected, server.parkedConnections());
+    }
+
+    @Test
+    void idleKeepAliveConnectionsWaitInThePollerAndResumeOnTheNextRequest() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        List<RawClient> clients = new java.util.ArrayList<>();
+        try {
+            for (int i = 0; i < 25; i++) {
+                RawClient c = new RawClient(server.port());
+                assertEquals("hello", c.get("/").text());
+                clients.add(c);
+            }
+            awaitParked(25);
+            for (RawClient c : clients) {
+                assertEquals("hello", c.get("/").text());
+            }
+            awaitParked(25);
+        } finally {
+            for (RawClient c : clients) {
+                c.close();
+            }
+        }
+    }
+
+    @Test
+    void silentNewConnectionIsParkedUntilItSendsARequest() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            awaitParked(1);
+            assertEquals("hello", c.get("/").text());
+            awaitParked(1);
+        }
+    }
+
+    @Test
+    void pipelinedRequestsAreAllServed() throws IOException {
+        server = echoApp(JoltConfig.defaults()).listen(0);
+        try (var c = new RawClient(server.port())) {
+            c.send("GET / HTTP/1.1\r\nHost: t\r\n\r\nGET / HTTP/1.1\r\nHost: t\r\n\r\n");
+            assertEquals("hello", c.read().text());
+            assertEquals("hello", c.read().text());
+        }
+    }
+
+    @Test
+    void parkedConnectionTheClientClosesIsReleased() throws IOException {
+        server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("hello", c.get("/").text());
+            awaitParked(1);
+        }
+        awaitParked(0);
+        try (var c = new RawClient(server.port())) {
+            assertEquals("hello", c.get("/").text());
+        }
+    }
+
     @Test
     void connectionIsClosedAfterMaxRequests() throws IOException {
         server = echoApp(JoltConfig.defaults().maxRequestsPerConnection(2)).listen(0);
@@ -429,10 +491,11 @@ class ServerTest {
     }
 
     @Test
-    void answers503WhenConnectionLimitIsReached() throws IOException {
+    void answers503WhenEveryConnectionHasARequestInFlight() throws IOException {
         server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
-        try (var first = new RawClient(server.port())) {
-            assertEquals("hello", first.get("/").text());
+        try (var busy = new RawClient(server.port())) {
+            busy.send("GET / HTTP/1.1\r\nHost: t\r\n");
+            sleep(200);
             try (var second = new RawClient(server.port())) {
                 Reply r = second.read();
                 assertEquals(503, r.status());
@@ -442,16 +505,50 @@ class ServerTest {
     }
 
     @Test
+    void idleConnectionIsClosedToAdmitANewOneAtTheLimit() throws IOException {
+        server = echoApp(JoltConfig.defaults().maxConnections(1)).listen(0);
+        try (var first = new RawClient(server.port())) {
+            assertEquals("hello", first.get("/").text());
+            try (var second = new RawClient(server.port())) {
+                assertEquals("hello", second.get("/").text());
+                assertTrue(first.isClosedByPeer());
+            }
+        }
+    }
+
+    @Test
+    void longestIdleConnectionIsTheOneClosedAtTheLimit() throws IOException {
+        server = echoApp(JoltConfig.defaults().maxConnections(2)).listen(0);
+        try (var older = new RawClient(server.port());
+                var newer = new RawClient(server.port())) {
+            assertEquals("hello", older.get("/").text());
+            sleep(50);
+            assertEquals("hello", newer.get("/").text());
+            try (var third = new RawClient(server.port())) {
+                assertEquals("hello", third.get("/").text());
+                assertTrue(older.isClosedByPeer());
+                assertEquals("hello", newer.get("/").text());
+            }
+        }
+    }
+
+    @Test
     @Timeout(15)
     void connectionFloodBeyondTheCapIsAnswered503AndServerRecovers() throws IOException {
         int cap = 20;
-        server = echoApp(JoltConfig.defaults().maxConnections(cap)).listen(0);
+        server =
+                echoApp(
+                                JoltConfig.defaults()
+                                        .maxConnections(cap)
+                                        .readTimeout(Duration.ofSeconds(30)))
+                        .listen(0);
         List<RawClient> holders = new java.util.ArrayList<>();
         for (int i = 0; i < cap; i++) {
             RawClient c = new RawClient(server.port());
-            assertEquals("hello", c.get("/").text());
+            c.send("GET / HTTP/1.1\r\nHost: t\r\n");
             holders.add(c);
         }
+        sleep(300);
         int rejected = 0;
         for (int i = 0; i < 500; i++) {
             try (var c = new RawClient(server.port())) {
@@ -462,7 +559,7 @@ class ServerTest {
         }
         assertEquals(500, rejected);
         for (RawClient c : holders) {
-            assertEquals("hello", c.get("/").text());
+            assertEquals("hello", c.send("\r\n").read().text());
             c.close();
         }
         sleep(100);

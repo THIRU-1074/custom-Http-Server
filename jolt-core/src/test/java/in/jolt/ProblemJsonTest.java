@@ -185,12 +185,12 @@ class ProblemJsonTest {
     }
 
     @Test
-    void connectionLimitRejectionIsAProblemToo() throws IOException {
+    void connectionLimitRejectionIsAProblemToo() throws IOException, InterruptedException {
         App app = Jolt.create(JoltConfig.defaults().problemJson(true).maxConnections(1));
         try (Server s = app.listen(0);
                 var first = new RawClient(s.port())) {
-            first.send("GET /x HTTP/1.1\r\nHost: t\r\n\r\n");
-            first.read();
+            first.send("GET /x HTTP/1.1\r\nHost: t\r\n");
+            Thread.sleep(200);
             try (var second = new RawClient(s.port())) {
                 RawClient.Reply r = second.read();
                 assertEquals(503, r.status());
@@ -213,7 +213,8 @@ class ProblemJsonTest {
             };
 
     @Test
-    void rejectionsSurviveAThrowingMapperAndTheServerKeepsAccepting() throws IOException {
+    void rejectionsSurviveAThrowingMapperAndTheServerKeepsAccepting()
+            throws IOException, InterruptedException {
         App app =
                 Jolt.create(
                         JoltConfig.defaults()
@@ -223,6 +224,8 @@ class ProblemJsonTest {
         app.get("/x", (req, res) -> res.text("ok"));
         try (Server s = app.listen(0);
                 var first = new RawClient(s.port())) {
+            first.send("GET /x HTTP/1.1\r\nHost: t\r\n");
+            Thread.sleep(200);
             for (int i = 0; i < 2; i++) {
                 try (var extra = new RawClient(s.port())) {
                     RawClient.Reply r = extra.read();
@@ -234,7 +237,7 @@ class ProblemJsonTest {
                             r.text());
                 }
             }
-            first.send("GET /x HTTP/1.1\r\nHost: t\r\n\r\n");
+            first.send("\r\n");
             assertEquals("ok", first.read().text());
         }
     }

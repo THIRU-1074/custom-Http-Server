@@ -134,15 +134,17 @@ class ProtocolTest {
     }
 
     @Test
-    void saturationAnswers503ToEveryExtraConnectionAndRecoversWhenSlotsFree() throws IOException {
+    void saturationAnswers503ToEveryExtraConnectionAndRecoversWhenSlotsFree()
+            throws IOException, InterruptedException {
         int port = start(JoltConfig.defaults().maxConnections(3));
         List<RawClient> held = new ArrayList<>();
         try {
             for (int i = 0; i < 3; i++) {
                 var c = new RawClient(port);
-                assertEquals("ok", okBody(c));
+                c.send("GET /n/1 HTTP/1.1\r\nHost: t\r\n");
                 held.add(c);
             }
+            Thread.sleep(300);
             for (int i = 0; i < 3; i++) {
                 try (var extra = new RawClient(port)) {
                     Reply r = extra.read();
@@ -158,11 +160,6 @@ class ProtocolTest {
                 c.close();
             }
         }
-    }
-
-    private static String okBody(RawClient c) throws IOException {
-        Reply r = c.get("/n/1");
-        return r.status() == 200 ? "ok" : "status " + r.status();
     }
 
     private static String eventuallyServed(int port) throws IOException {

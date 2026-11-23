@@ -14,8 +14,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import javax.net.ssl.SSLSocket;
 
 /** Serves one connection: requests are read, handled and answered strictly one at a time. */
@@ -47,7 +51,15 @@ public final class ConnectionHandler implements Runnable {
     private final Dispatcher dispatcher;
     private final BooleanSupplier draining;
     private final TrustedProxies trusted;
-    private volatile boolean idle;
+    private final Poller poller;
+    private final Consumer<ConnectionHandler> onClose;
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private volatile boolean idle = true;
+    private volatile long idleSince = System.nanoTime();
+    private volatile boolean parked;
+    private Limits limits;
+    private int served;
+    private boolean ready;
     private final Live wire = new Wire();
     private OutputStream out;
     private InputStream in;
@@ -67,11 +79,28 @@ public final class ConnectionHandler implements Runnable {
             Dispatcher dispatcher,
             BooleanSupplier draining,
             TrustedProxies trusted) {
+        this(socket, config, dispatcher, draining, trusted, null, h -> {});
+    }
+
+    /**
+     * Idle keep-alive time is spent in {@code poller} when the socket has a channel; otherwise
+     * (TLS) the connection's own thread waits. {@code onClose} runs once when it ends.
+     */
+    public ConnectionHandler(
+            Socket socket,
+            JoltConfig config,
+            Dispatcher dispatcher,
+            BooleanSupplier draining,
+            TrustedProxies trusted,
+            Poller poller,
+            Consumer<ConnectionHandler> onClose) {
         this.socket = socket;
         this.config = config;
         this.dispatcher = dispatcher;
         this.draining = draining;
         this.trusted = trusted;
+        this.poller = socket.getChannel() == null ? null : poller;
+        this.onClose = onClose;
     }
 
     private final class Wire implements Live {
@@ -165,11 +194,33 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    /** Closes the socket if no request is in flight. */
+    /** When this connection began waiting for its next request; empty while one is in flight. */
+    public OptionalLong idleSince() {
+        return idle ? OptionalLong.of(idleSince) : OptionalLong.empty();
+    }
+
+    /** True while the poller holds this connection between requests. */
+    public boolean parked() {
+        return parked;
+    }
+
+    /** Closes the connection if no request is in flight. */
     public void closeIfIdle() {
         if (idle) {
-            closeQuietly(socket);
+            close();
         }
+    }
+
+    private void close() {
+        parked = false;
+        closeQuietly(socket);
+        if (closed.compareAndSet(false, true)) {
+            onClose.accept(this);
+        }
+    }
+
+    SocketChannel channel() {
+        return socket.getChannel();
     }
 
     /**
@@ -195,8 +246,8 @@ public final class ConnectionHandler implements Runnable {
 
     @Override
     public void run() {
-        Limits limits = Limits.from(config);
-        try (socket) {
+        limits = Limits.from(config);
+        try {
             socket.setTcpNoDelay(true);
             if (socket instanceof SSLSocket tls) {
                 socket.setSoTimeout((int) config.readTimeout().toMillis());
@@ -204,67 +255,106 @@ public final class ConnectionHandler implements Runnable {
             }
             in = new BufferedInputStream(socket.getInputStream(), 8192);
             out = socket.getOutputStream();
-            for (int served = 0; served < config.maxRequestsPerConnection(); served++) {
-                socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());
-                idle = true;
-                if (draining.getAsBoolean()) {
-                    return;
-                }
-                in.mark(1);
-                int first;
-                try {
-                    first = in.read();
-                } catch (SocketTimeoutException e) {
-                    return;
-                }
-                idle = false;
-                if (first < 0) {
-                    return;
-                }
-                in.reset();
-                socket.setSoTimeout((int) config.readTimeout().toMillis());
-
-                HttpParser.ParsedRequest parsed;
-                try {
-                    parsed = HttpParser.parse(in, limits, out);
-                } catch (HttpException e) {
-                    writeError(out, config, e.status(), e.getMessage());
-                    return;
-                } catch (SocketTimeoutException e) {
-                    writeError(out, config, 408, "Request Timeout");
-                    return;
-                } catch (EOFException e) {
-                    return;
-                }
-                if (parsed == null) {
-                    return;
-                }
-                Response res = handle(parsed);
-                if (taken) {
-                    if (tracked != null) {
-                        tracked.streamEnded(websocket);
-                    }
-                    if (sink != null) {
-                        if (failed) {
-                            sink.abort();
-                        } else {
-                            sink.close();
-                        }
-                    }
-                    return;
-                }
-                boolean keep =
-                        parsed.keepAlive()
-                                && served + 1 < config.maxRequestsPerConnection()
-                                && !draining.getAsBoolean();
-                ResponseWriter.write(out, res, keep, parsed.method().equals("HEAD"));
-                if (!keep) {
-                    return;
-                }
-            }
         } catch (IOException e) {
             LOG.log(System.Logger.Level.DEBUG, "Connection ended", e);
+            close();
+            return;
         }
+        serve();
+    }
+
+    /** Continues a connection the poller found readable. */
+    void resume() {
+        parked = false;
+        idle = false;
+        ready = true;
+        serve();
+    }
+
+    private void serve() {
+        boolean handedToPoller = false;
+        try {
+            handedToPoller = exchange();
+        } catch (IOException e) {
+            LOG.log(System.Logger.Level.DEBUG, "Connection ended", e);
+        } finally {
+            if (!handedToPoller) {
+                close();
+            }
+        }
+    }
+
+    /** Serves requests until the connection ends; true when it was handed to the poller. */
+    private boolean exchange() throws IOException {
+        for (; served < config.maxRequestsPerConnection(); served++) {
+            if (ready) {
+                ready = false;
+            } else {
+                idleSince = System.nanoTime();
+                idle = true;
+                if (draining.getAsBoolean()) {
+                    return false;
+                }
+                if (poller != null && in.available() == 0) {
+                    parked = true;
+                    poller.park(this);
+                    return true;
+                }
+            }
+            socket.setSoTimeout((int) config.keepAliveTimeout().toMillis());
+            in.mark(1);
+            int first;
+            try {
+                first = in.read();
+            } catch (SocketTimeoutException e) {
+                return false;
+            }
+            idle = false;
+            if (first < 0) {
+                return false;
+            }
+            in.reset();
+            socket.setSoTimeout((int) config.readTimeout().toMillis());
+
+            HttpParser.ParsedRequest parsed;
+            try {
+                parsed = HttpParser.parse(in, limits, out);
+            } catch (HttpException e) {
+                writeError(out, config, e.status(), e.getMessage());
+                return false;
+            } catch (SocketTimeoutException e) {
+                writeError(out, config, 408, "Request Timeout");
+                return false;
+            } catch (EOFException e) {
+                return false;
+            }
+            if (parsed == null) {
+                return false;
+            }
+            Response res = handle(parsed);
+            if (taken) {
+                if (tracked != null) {
+                    tracked.streamEnded(websocket);
+                }
+                if (sink != null) {
+                    if (failed) {
+                        sink.abort();
+                    } else {
+                        sink.close();
+                    }
+                }
+                return false;
+            }
+            boolean keep =
+                    parsed.keepAlive()
+                            && served + 1 < config.maxRequestsPerConnection()
+                            && !draining.getAsBoolean();
+            ResponseWriter.write(out, res, keep, parsed.method().equals("HEAD"));
+            if (!keep) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private void take(boolean ws, int status) {

@@ -2,16 +2,22 @@ package in.jolt;
 
 import in.jolt.internal.http.ConnectionHandler;
 import in.jolt.internal.http.Metrics;
+import in.jolt.internal.http.Poller;
 import in.jolt.internal.http.Tls;
 import in.jolt.internal.http.TrustedProxies;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.channels.ServerSocketChannel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -20,6 +26,8 @@ import javax.net.ssl.SSLServerSocket;
 
 /**
  * A running server. One virtual thread serves each connection, bounded by {@code maxConnections}.
+ * At the limit, the longest-idle keep-alive connection is closed to admit a new one; a new
+ * connection is refused with 503 only when every connection has a request in flight.
  */
 public final class Server implements AutoCloseable {
 
@@ -33,6 +41,7 @@ public final class Server implements AutoCloseable {
     private final ServerSocket serverSocket;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore permits;
+    private final Poller poller;
     private final Set<ConnectionHandler> live = ConcurrentHashMap.newKeySet();
     private final Thread acceptor;
     private final Object closeLock = new Object();
@@ -44,7 +53,14 @@ public final class Server implements AutoCloseable {
     private static ServerSocket bind(JoltConfig config, int port) throws IOException {
         InetAddress address = InetAddress.getByName(config.bindAddress());
         if (config.tls() == null) {
-            return new ServerSocket(port, 1024, address);
+            ServerSocketChannel channel = ServerSocketChannel.open();
+            try {
+                channel.bind(new InetSocketAddress(address, port), 1024);
+            } catch (IOException | RuntimeException e) {
+                channel.close();
+                throw e;
+            }
+            return channel.socket();
         }
         var socket =
                 (SSLServerSocket)
@@ -53,6 +69,23 @@ public final class Server implements AutoCloseable {
                                 .createServerSocket(port, 1024, address);
         Tls.harden(socket);
         return socket;
+    }
+
+    /** TLS sockets have no channel to select on, so their idle time stays on their own thread. */
+    private static Poller openPoller(JoltConfig config, Executor executor) {
+        if (config.tls() != null) {
+            return null;
+        }
+        try {
+            return new Poller(executor, config.keepAliveTimeout());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Connections the keep-alive poller is holding between requests. */
+    int parkedConnections() {
+        return (int) live.stream().filter(ConnectionHandler::parked).count();
     }
 
     /** A lifecycle entry; either side may be {@code null}. */
@@ -119,6 +152,7 @@ public final class Server implements AutoCloseable {
         this.trusted = TrustedProxies.from(config);
         this.permits = new Semaphore(config.maxConnections());
         this.serverSocket = serverSocket;
+        this.poller = openPoller(config, executor);
         this.acceptor = new Thread(this::acceptLoop, "jolt-acceptor");
         acceptor.start();
     }
@@ -169,30 +203,51 @@ public final class Server implements AutoCloseable {
                 }
                 continue;
             }
-            if (!permits.tryAcquire()) {
+            if (!permits.tryAcquire() && !reclaimIdle()) {
                 ConnectionHandler.reject(socket, config);
                 continue;
             }
-            var handler = new ConnectionHandler(socket, config, dispatcher, () -> closing, trusted);
+            var handler =
+                    new ConnectionHandler(
+                            socket,
+                            config,
+                            dispatcher,
+                            () -> closing,
+                            trusted,
+                            poller,
+                            this::release);
             live.add(handler);
             Metrics opened = dispatcher.metrics();
             if (opened != null) {
                 opened.connectionOpened();
             }
             try {
-                executor.execute(
-                        () -> {
-                            try {
-                                handler.run();
-                            } finally {
-                                release(handler);
-                            }
-                        });
+                executor.execute(handler);
             } catch (RuntimeException e) {
-                release(handler);
                 handler.closeIfIdle();
             }
         }
+    }
+
+    /**
+     * At the connection limit, closes the connection that has waited longest for its next request
+     * and takes its permit. False when every connection has a request in flight.
+     */
+    private boolean reclaimIdle() {
+        ConnectionHandler oldest = null;
+        long since = 0;
+        for (ConnectionHandler h : live) {
+            OptionalLong s = h.idleSince();
+            if (s.isPresent() && (oldest == null || s.getAsLong() - since < 0)) {
+                oldest = h;
+                since = s.getAsLong();
+            }
+        }
+        if (oldest == null) {
+            return false;
+        }
+        oldest.closeIfIdle();
+        return permits.tryAcquire();
     }
 
     private void release(ConnectionHandler handler) {
@@ -226,6 +281,9 @@ public final class Server implements AutoCloseable {
             try {
                 serverSocket.close();
                 acceptor.join();
+                if (poller != null) {
+                    poller.close();
+                }
                 live.forEach(ConnectionHandler::closeIfIdle);
                 executor.shutdown();
                 if (!executor.awaitTermination(GRACE_SECONDS, TimeUnit.SECONDS)) {
