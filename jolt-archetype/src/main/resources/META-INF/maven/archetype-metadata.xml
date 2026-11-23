@@ -7,7 +7,7 @@
 
   <requiredProperties>
     <requiredProperty key="joltVersion">
-      <defaultValue>v0.4.1</defaultValue>
+      <defaultValue>v0.4.2</defaultValue>
     </requiredProperty>
   </requiredProperties>
 
