@@ -16,6 +16,7 @@
   --accent-soft: #dff3ea;
   --warn: #a85a05;
   --warn-soft: #fbead4;
+  --bad: #b42318;
   --code-bg: #0f1720;
   --code-ink: #d7e2ee;
   --code-muted: #7f93a8;
@@ -25,13 +26,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0c1319; --panel: #131d26; --ink: #e6edf4; --muted: #93a4b6; --line: #243342;
-    --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12;
+    --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12; --bad: #ff8a80;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0c1319; --panel: #131d26; --ink: #e6edf4; --muted: #93a4b6; --line: #243342;
-  --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12;
+  --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12; --bad: #ff8a80;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -117,6 +118,23 @@ details.notes b { color: var(--accent); }
 
 .foot { max-width: 1120px; margin: 0 auto; padding: 0 max(16px, 3vw) 40px; color: var(--muted); font-size: 0.82rem; }
 
+.dgwrap { max-width: 760px; width: 100%; margin: 0 auto; }
+.dg { display: block; width: 100%; height: auto; font-size: 13px; }
+.dg text { font-family: var(--font-body); }
+.dg .t { fill: var(--ink); }
+.dg .q { fill: var(--muted); font-size: 11.5px; }
+.dg .n { font-weight: 600; }
+.dg .ttl { font-size: 15px; font-weight: 600; fill: var(--ink); }
+.dg .e { stroke: var(--muted); fill: none; stroke-width: 1.25; }
+.dg .box { fill: none; stroke: var(--muted); stroke-width: 1.25; }
+.dg .main { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.dg .x { fill: none; stroke: var(--bad); stroke-width: 1.25; }
+.dg .ma { fill: var(--muted); }
+.dg .mb { fill: var(--bad); }
+.dg a { cursor: pointer; }
+.dg a:hover .box, .dg a:focus-visible .box { stroke: var(--accent); stroke-width: 2; }
+.dg a:focus-visible { outline: none; }
+
 @media (min-width: 861px) {
   .tabs { flex-wrap: wrap; overflow-x: visible; }
 }
@@ -173,6 +191,96 @@ details.notes b { color: var(--accent); }
   <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> one sentence on what it is and why: I wanted Express's feel in Java, so I built it from a ServerSocket.
     <ul><li>Order of this talk: why, shape of the code, one request end to end, then each stage with the real code, then testing, the proof app, numbers and limits.</li>
     <li>Keep the numbers modest and sourced: tests are from my own runs, performance from the README with its caveats.</li></ul></div></details>
+</article>
+
+<article class="card" id="diagram" data-title="The whole picture">
+  <span class="kicker">Start here</span>
+  <h2>A connection holds a thread only while a request runs</h2>
+  <p class="sub">The whole request lifecycle in one picture. Click a block to jump to its code. Red boxes are where a request leaves early.</p>
+  <div class="dgwrap">
+<svg class="dg" viewBox="0 0 760 616" role="img" aria-label="Jolt request lifecycle: accept loop, semaphore, virtual thread, HttpParser, middleware chain, RouteTrie and handler, error mapping and ResponseWriter, with the keep-alive poller holding idle connections and three early exits">
+  <defs>
+    <marker id="ov-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ma" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="ov-arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="mb" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+  <text class="ttl" x="24" y="32">Jolt request lifecycle: 7 stages, the keep-alive poller, 3 early exits</text>
+
+  <g class="e">
+    <path d="M368 112V136" marker-end="url(#ov-arrow)"/>
+    <path d="M368 192V216" marker-end="url(#ov-arrow)"/>
+    <path d="M368 272V296" marker-end="url(#ov-arrow)"/>
+    <path d="M368 352V376" marker-end="url(#ov-arrow)"/>
+    <path d="M368 432V456" marker-end="url(#ov-arrow)"/>
+    <path d="M368 512V536" marker-end="url(#ov-arrow)"/>
+    <path d="M208 564H130V408" marker-end="url(#ov-arrow)"/>
+    <path d="M130 296V244H208" marker-end="url(#ov-arrow)"/>
+  </g>
+  <text class="q" x="122" y="470" text-anchor="end"><tspan x="122">next request</tspan><tspan x="122" dy="16">(keep-alive)</tspan></text>
+  <text class="q" x="138" y="490">park</text>
+  <text class="q" x="138" y="236">resume</text>
+
+  <a href="#s7" data-go="s7" aria-label="Poller: see how idle connections are held">
+    <rect class="box" x="24" y="296" width="148" height="112" rx="8"/>
+    <text class="t n" x="98" y="320" text-anchor="middle">Poller</text>
+    <text class="q" x="98" y="338" text-anchor="middle">one Selector holds</text>
+    <text class="q" x="98" y="354" text-anchor="middle">idle plain sockets;</text>
+    <text class="q" x="98" y="370" text-anchor="middle">closes them past</text>
+    <text class="q" x="98" y="386" text-anchor="middle">keep-alive timeout</text>
+  </a>
+
+  <a href="#s6" data-go="s6" aria-label="Accept loop: see the code">
+    <rect class="box" x="208" y="56" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="79" text-anchor="middle">Accept loop</text>
+    <text class="q" x="368" y="98" text-anchor="middle">ServerSocket.accept(), loopback by default</text>
+  </a>
+  <a href="#s6" data-go="s6" aria-label="Semaphore: see how connections are admitted">
+    <rect class="box" x="208" y="136" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="159" text-anchor="middle">Semaphore(maxConnections)</text>
+    <text class="q" x="368" y="178" text-anchor="middle">full: closes the longest-idle one first</text>
+  </a>
+  <a href="#s8" data-go="s8" aria-label="Virtual thread: see the connection loop">
+    <rect class="main" x="208" y="216" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="239" text-anchor="middle">Virtual thread, only while it has work</text>
+    <text class="t" style="font-size:11.5px" x="368" y="258" text-anchor="middle">handles its requests one after another</text>
+  </a>
+  <a href="#s9" data-go="s9" aria-label="HttpParser: see how requests are read safely">
+    <rect class="box" x="208" y="296" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="319" text-anchor="middle">HttpParser</text>
+    <text class="q" x="368" y="338" text-anchor="middle">size limits, timeouts, smuggling checks</text>
+  </a>
+  <a href="#s10" data-go="s10" aria-label="Middleware chain: see the code">
+    <rect class="box" x="208" y="376" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="399" text-anchor="middle">Middleware chain</text>
+    <text class="q" x="368" y="418" text-anchor="middle">(req, res, next) in registration order</text>
+  </a>
+  <a href="#s11" data-go="s11" aria-label="RouteTrie and handler: see how routes are matched">
+    <rect class="box" x="208" y="456" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="479" text-anchor="middle">RouteTrie + handler</text>
+    <text class="q" x="368" y="498" text-anchor="middle">static, then regex :param, :param, *</text>
+  </a>
+  <a href="#s13" data-go="s13" aria-label="Error mapping and ResponseWriter: see how failures become responses">
+    <rect class="box" x="208" y="536" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="559" text-anchor="middle">Error mapping + ResponseWriter</text>
+    <text class="q" x="368" y="578" text-anchor="middle">onError, HttpException, else 500; write bytes</text>
+  </a>
+
+  <path class="x" d="M528 164H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="144" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="168" text-anchor="middle">all busy: 503, close</text>
+  <path class="x" d="M528 324H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="304" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="328" text-anchor="middle">bad input: 4xx, close</text>
+  <path class="x" d="M528 484H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="464" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="488" text-anchor="middle">no route: 404 or 405</text>
+</svg>
+  </div>
+  <div class="callout">Reading it top to bottom: a connection is accepted, admitted by the semaphore, and run on a virtual thread. After each response it is parked in the poller, and a new virtual thread continues it when the next request arrives.</div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md#request-lifecycle">docs/ARCHITECTURE.md, Request lifecycle</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Server.java">Server.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> draw this on a whiteboard first, then point at each block.
+    <ul><li>The accent block is the only one that holds a thread, and only while a request is being processed.</li>
+    <li>The poller, on the left, is what holds a connection between requests, so waiting costs no thread.</li>
+    <li>Red boxes are the early exits: no free slot and every connection busy, bad input, and no matching route.</li></ul></div></details>
 </article>
 
 <article class="card" id="s2" data-title="Why it exists">
