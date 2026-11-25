@@ -1,8 +1,75 @@
 # Jolt server performance
 
-Throughput and latency of the Jolt todo app, measured on **Jolt 0.4.2** and compared with the earlier
-**0.2.0** run, which is kept unchanged in [RESULTS-0.2.0.md](RESULTS-0.2.0.md). Spring Boot, Javalin and
-Express are measured the same way as reference points.
+Throughput, latency and resource use of Jolt **0.4.2**, measured against two earlier points:
+
+1. **v0.1.0**, the original server with an unbounded thread per connection: the large difference is here
+   (next section).
+2. **0.2.0**, the earlier benchmark run, kept unchanged in [RESULTS-0.2.0.md](RESULTS-0.2.0.md): the
+   difference there is small, because 0.2.0 had already moved to virtual threads
+   ([release-to-release](#release-to-release-020-versus-042)).
+
+Spring Boot, Javalin and Express are measured the same way as reference points.
+
+## v0.1.0 versus 0.4.2
+
+Same machine, same JDK, `-Xmx448m` on both servers, one trivial route (`GET /ping`), one server at a time.
+v0.1.0 was built from the `v0.1.0` tag with a one-route app; 0.4.2 uses the current `jolt-core`.
+
+### Steady load: 50 clients, 30 s
+
+| | v0.1.0 | 0.4.2 | Difference |
+|---|---:|---:|---:|
+| Throughput | **65.7 req/s** (65.6, 65.9) | **22,743 req/s** (19,728, 25,865, 22,637) | **346x higher** |
+| Mean latency | 698 ms (704, 693) | 2.2 ms (2.5, 1.9, 2.2) | **317x lower** |
+| Failed requests | 8.8% and 10.1% of requests | 0 of 2,047,129 | |
+| Threads after the run | 28 | 39 | |
+
+```
+throughput (log scale, each block is a factor of 2)
+v0.1.0  ||||||                        66 req/s
+0.4.2   |||||||||||||||               22,743 req/s
+```
+
+### 800 idle keep-alive connections held open
+
+| | v0.1.0 | 0.4.2 (keep-alive 120 s) | Difference |
+|---|---:|---:|---:|
+| Server threads | **2,443** | **29** | **84x fewer** |
+| Threads per connection | about 3 | none (virtual threads, idle ones parked in one `Selector`) | |
+| Memory growth (working set) | 43 to 240 MB (+197 MB) | 57 to 66 MB (+9 MB) | **22x less growth** |
+| Latency of a new request while the 800 sit idle (median of 15) | **513 ms** | **1 ms** | **513x lower** |
+| Connections held | 801 | 800 | |
+
+```
+server threads with 800 idle connections (each block is about 40 threads)
+v0.1.0  ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||| 2,443
+0.4.2   | 29
+```
+
+With the default 0.4.2 configuration (`keepAliveTimeout` 5 s) the server closes idle connections after 5 s, so
+no connections were established when sampled; threads 29, memory 67 MB, probe latency 2 ms. That is the bound
+doing its job, and it is why the table above raises the timeout to hold the connections open.
+
+### Why the gap is this large
+
+Both causes are visible in the v0.1.0 source (`ClientConnection.java`):
+
+- **Three platform threads per connection.** One for the connection, one `ClientResponder`, and a new
+  `RequestHandler` thread per request, with no limit. 800 connections became 2,443 threads and 197 MB of growth.
+  0.4.2 serves requests on virtual threads, caps open connections (`maxConnections`, default 1000) and parks idle
+  keep-alive connections in a single `Selector` poller.
+- **Sleep polling.** v0.1.0 waits for a request with `Thread.sleep(250)` loops and for the response queue with
+  `Thread.sleep(500)` loops. The 513 ms probe latency and the 698 ms steady-load latency match those sleeps. This
+  part of the gap comes from the polling design and not from the thread count alone.
+- **Connection reuse.** v0.1.0 keeps a connection open only when the request carries exactly
+  `Connection: keep-alive`. The JDK `HttpClient` used by `Load.java` does not send that header, so v0.1.0 closed
+  the connection after every response in the steady test, and the failed requests are consistent with that churn.
+  A client that sends the header would likely see different numbers; that case was not measured.
+
+The idle test shows the unbounded-thread cost in isolation, since its probe latency is the only part touched by
+the sleeps. The steady test mixes both causes.
+
+## Release to release: 0.2.0 versus 0.4.2
 
 | | Jolt 0.2.0 (old) | Jolt 0.4.2 (new) |
 |---|---|---|
@@ -134,11 +201,13 @@ runs, that lead was not reliable either.
 | Version | Tool | req/s | Mean latency |
 |---|---|---:|---:|
 | v0.1 | Postman, 50 VU, 1 min | 27.45 | 295 ms |
+| v0.1.0 | `Load.java`, 50 clients, 30 s, `GET /ping` | 65.7 | 698 ms |
 | 0.2.0 | `Load.java`, 50 clients, 30 s | 21,206 | 2.47 ms |
 | 0.4.2 | `Load.java`, 50 clients, 30 s | 21,512 | 2.33 ms |
 
-The v0.1 figure used a different tool, route and client. Do not read the jump from v0.1 as a pure framework
-improvement.
+The Postman figure used a different tool, route and client; the `Load.java` row for v0.1.0 re-measures it with
+the same tool as the later rows. Part of the v0.1.0 gap is the sleep polling described above, not only the
+threading model.
 
 ---
 
@@ -161,6 +230,9 @@ improvement.
 - One route (`GET /todos`, empty list): no body parsing, no writes, no larger payloads.
 - No latency percentiles (only the mean), no memory or CPU use, no TLS, no HTTP keep-alive tuning comparison.
 - Client and server on one machine; no warm-up control beyond three consecutive runs.
+- The v0.1.0 comparison uses one route and one idle-connection count (800, below the 1000 connection limit).
+  Beyond the limit, overload behaviour, slow clients and a client that sends `Connection: keep-alive` were not run.
+  Each v0.1.0 and idle measurement is a single launch.
 - Token counts and behaviour checks are unchanged from [RESULTS-0.2.0.md](RESULTS-0.2.0.md) and were not repeated here.
 
 ## Reproduce
