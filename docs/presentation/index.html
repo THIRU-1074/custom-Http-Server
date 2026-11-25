@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jolt: from the socket up</title>
+<style>
+/* Layout: a sticky header holds the tab bar. Each tab is a stack of cards, one per topic, each with its code and a collapsible speaker-notes block. Without JavaScript every tab is shown in one column. */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #0f1a24;
+  --muted: #58677a;
+  --line: #d5dbe3;
+  --accent: #0a6b4f;
+  --accent-soft: #dff3ea;
+  --warn: #a85a05;
+  --warn-soft: #fbead4;
+  --bad: #b42318;
+  --code-bg: #0f1720;
+  --code-ink: #d7e2ee;
+  --code-muted: #7f93a8;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1319; --panel: #131d26; --ink: #e6edf4; --muted: #93a4b6; --line: #243342;
+    --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12; --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1319; --panel: #131d26; --ink: #e6edf4; --muted: #93a4b6; --line: #243342;
+  --accent: #5ee0a8; --accent-soft: #12342a; --warn: #f0a24a; --warn-soft: #3a2a12; --bad: #ff8a80;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 17px; line-height: 1.55; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--accent-soft); color: var(--ink); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+button, select, summary { font: inherit; color: var(--ink); }
+button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.top { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line); }
+.topin { max-width: 1120px; margin: 0 auto; padding: 8px max(16px, 3vw) 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; padding-bottom: 8px; }
+.brand span { color: var(--accent); }
+.tools { margin-left: auto; display: flex; gap: 8px; padding-bottom: 8px; }
+.tools button { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 0.8rem; }
+.tools button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.tabs { display: none; flex: 1 1 100%; order: 3; gap: 2px; overflow-x: auto; margin: 0 -4px; scrollbar-width: thin; }
+.js .tabs { display: flex; }
+.tabs button {
+  flex: 0 0 auto; background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 9px 12px; cursor: pointer;
+  font-size: 0.92rem; font-weight: 600; color: var(--muted); white-space: nowrap;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { max-width: 1120px; margin: 0 auto; padding: 22px max(16px, 3vw) 56px; }
+.panel { display: flex; flex-direction: column; gap: 18px; }
+.panel[hidden] { display: none; }
+.jumps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--muted); }
+.jumps a { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 12px; text-decoration: none; color: var(--ink); }
+.jumps a:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px max(16px, 2.2vw); display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 150px; min-width: 0; }
+.card.flash { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.1; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+h2 { font-size: clamp(1.3rem, 2.6vw, 1.75rem); line-height: 1.2; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h3 { font-size: 1rem; margin: 0 0 4px; }
+p { margin: 0; }
+.kicker { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.sub { color: var(--muted); font-size: 1.1rem; max-width: 64ch; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+.cols.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+ul.pts { margin: 0; padding-left: 1.15em; display: flex; flex-direction: column; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; color: var(--muted); }
+.chip b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+
+pre {
+  margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.55; tab-size: 4;
+}
+pre .c { color: var(--code-muted); }
+.file { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 4px; overflow-wrap: anywhere; }
+.where { border-top: 1px dashed var(--line); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); }
+.where a { font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+
+.flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.flow button {
+  flex: 1 1 170px; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.flow button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.flow .n { font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent); }
+.flow .t { font-weight: 600; font-size: 0.95rem; }
+.flow .d { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; }
+
+.callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 0.95rem; }
+.callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+
+details.notes { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+details.notes summary { cursor: pointer; padding: 8px 12px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+details.notes[open] summary { color: var(--accent); border-bottom: 1px solid var(--line); }
+details.notes .say { padding: 10px 14px; font-size: 0.92rem; }
+details.notes .say ul { margin: 6px 0 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+details.notes b { color: var(--accent); }
+
+.foot { max-width: 1120px; margin: 0 auto; padding: 0 max(16px, 3vw) 40px; color: var(--muted); font-size: 0.82rem; }
+
+.dgwrap { max-width: 760px; width: 100%; margin: 0 auto; }
+.dg { display: block; width: 100%; height: auto; font-size: 13px; }
+.dg text { font-family: var(--font-body); }
+.dg .t { fill: var(--ink); }
+.dg .q { fill: var(--muted); font-size: 11.5px; }
+.dg .n { font-weight: 600; }
+.dg .ttl { font-size: 15px; font-weight: 600; fill: var(--ink); }
+.dg .e { stroke: var(--muted); fill: none; stroke-width: 1.25; }
+.dg .box { fill: none; stroke: var(--muted); stroke-width: 1.25; }
+.dg .main { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.dg .x { fill: none; stroke: var(--bad); stroke-width: 1.25; }
+.dg .ma { fill: var(--muted); }
+.dg .mb { fill: var(--bad); }
+.dg a { cursor: pointer; }
+.dg a:hover .box, .dg a:focus-visible .box { stroke: var(--accent); stroke-width: 2; }
+.dg a:focus-visible { outline: none; }
+
+@media (min-width: 861px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+}
+@media (max-width: 860px) {
+  body { font-size: 16px; }
+  .cols, .cols.even { grid-template-columns: minmax(0, 1fr); }
+  .tools { margin-left: 0; }
+}
+@media print {
+  .top { position: static; }
+  .tabs, .tools, .jumps { display: none !important; }
+  .panel[hidden] { display: flex !important; }
+  .card { break-inside: avoid; }
+  details.notes { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="topin">
+    <div class="brand">Jolt <span>v0.4.2</span></div>
+    <div class="tools">
+      <button id="notesBtn" type="button" aria-pressed="false">Open all notes (N)</button>
+      <button id="themeBtn" type="button">Theme (T)</button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="t-overview" aria-controls="p-overview" data-tab="overview" aria-selected="true">1. Overview</button>
+      <button type="button" role="tab" id="t-flow" aria-controls="p-flow" data-tab="flow" aria-selected="false">2. Request flow</button>
+      <button type="button" role="tab" id="t-threads" aria-controls="p-threads" data-tab="threads" aria-selected="false">3. Connections and threads</button>
+      <button type="button" role="tab" id="t-http" aria-controls="p-http" data-tab="http" aria-selected="false">4. Parsing to handler</button>
+      <button type="button" role="tab" id="t-out" aria-controls="p-out" data-tab="out" aria-selected="false">5. Errors and responses</button>
+      <button type="button" role="tab" id="t-safe" aria-controls="p-safe" data-tab="safe" aria-selected="false">6. Security and tests</button>
+      <button type="button" role="tab" id="t-story" aria-controls="p-story" data-tab="story" aria-selected="false">7. History and proof app</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="panel" id="p-overview" role="tabpanel" aria-labelledby="t-overview">
+<article class="card" id="s1" data-title="Jolt, from the socket up">
+  <span class="kicker">Project walkthrough</span>
+  <h1>Jolt: an Express-style web framework for Java, built from the socket up</h1>
+  <p class="sub">Routes in one line, no annotations, no container to learn first. Core has no runtime dependencies and needs JDK 21.</p>
+  <div class="chips">
+    <span class="chip"><b>v0.4.2</b> released</span>
+    <span class="chip"><b>15</b> problems found in v0.1, all closed</span>
+    <span class="chip"><b>977</b> core tests, <b>1,136</b> across modules</span>
+    <span class="chip">proof app: <b>BookMyShow</b></span>
+  </div>
+  <div class="where">Repo: <a href="https://github.com/THIRU-1074/custom-Http-Server">custom-Http-Server</a> · App: <a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a> · Use the tabs above. Press N to open every speaker-notes block.</div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> one sentence on what it is and why: I wanted Express's feel in Java, so I built it from a ServerSocket.
+    <ul><li>Order of this talk: why, shape of the code, one request end to end, then each stage with the real code, then security and testing, and the history and proof app.</li>
+    <li>Keep the numbers modest and sourced: tests are from my own runs, performance from the README with its caveats.</li></ul></div></details>
+</article>
+
+<article class="card" id="diagram" data-title="The whole picture">
+  <span class="kicker">Start here</span>
+  <h2>A connection holds a thread only while a request runs</h2>
+  <p class="sub">The whole request lifecycle in one picture. Click a block to jump to its code. Red boxes are where a request leaves early.</p>
+  <div class="dgwrap">
+<svg class="dg" viewBox="0 0 760 616" role="img" aria-label="Jolt request lifecycle: accept loop, semaphore, virtual thread, HttpParser, middleware chain, RouteTrie and handler, error mapping and ResponseWriter, with the keep-alive poller holding idle connections and three early exits">
+  <defs>
+    <marker id="ov-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ma" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="ov-arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="mb" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+  <text class="ttl" x="24" y="32">Jolt request lifecycle: 7 stages, the keep-alive poller, 3 early exits</text>
+
+  <g class="e">
+    <path d="M368 112V136" marker-end="url(#ov-arrow)"/>
+    <path d="M368 192V216" marker-end="url(#ov-arrow)"/>
+    <path d="M368 272V296" marker-end="url(#ov-arrow)"/>
+    <path d="M368 352V376" marker-end="url(#ov-arrow)"/>
+    <path d="M368 432V456" marker-end="url(#ov-arrow)"/>
+    <path d="M368 512V536" marker-end="url(#ov-arrow)"/>
+    <path d="M208 564H130V408" marker-end="url(#ov-arrow)"/>
+    <path d="M130 296V244H208" marker-end="url(#ov-arrow)"/>
+  </g>
+  <text class="q" x="122" y="470" text-anchor="end"><tspan x="122">next request</tspan><tspan x="122" dy="16">(keep-alive)</tspan></text>
+  <text class="q" x="138" y="490">park</text>
+  <text class="q" x="138" y="236">resume</text>
+
+  <a href="#s7" data-go="s7" aria-label="Poller: see how idle connections are held">
+    <rect class="box" x="24" y="296" width="148" height="112" rx="8"/>
+    <text class="t n" x="98" y="320" text-anchor="middle">Poller</text>
+    <text class="q" x="98" y="338" text-anchor="middle">one Selector holds</text>
+    <text class="q" x="98" y="354" text-anchor="middle">idle plain sockets;</text>
+    <text class="q" x="98" y="370" text-anchor="middle">closes them past</text>
+    <text class="q" x="98" y="386" text-anchor="middle">keep-alive timeout</text>
+  </a>
+
+  <a href="#s6" data-go="s6" aria-label="Accept loop: see the code">
+    <rect class="box" x="208" y="56" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="79" text-anchor="middle">Accept loop</text>
+    <text class="q" x="368" y="98" text-anchor="middle">ServerSocket.accept(), loopback by default</text>
+  </a>
+  <a href="#s6" data-go="s6" aria-label="Semaphore: see how connections are admitted">
+    <rect class="box" x="208" y="136" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="159" text-anchor="middle">Semaphore(maxConnections)</text>
+    <text class="q" x="368" y="178" text-anchor="middle">full: closes the longest-idle one first</text>
+  </a>
+  <a href="#s8" data-go="s8" aria-label="Virtual thread: see the connection loop">
+    <rect class="main" x="208" y="216" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="239" text-anchor="middle">Virtual thread, only while it has work</text>
+    <text class="t" style="font-size:11.5px" x="368" y="258" text-anchor="middle">handles its requests one after another</text>
+  </a>
+  <a href="#s9" data-go="s9" aria-label="HttpParser: see how requests are read safely">
+    <rect class="box" x="208" y="296" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="319" text-anchor="middle">HttpParser</text>
+    <text class="q" x="368" y="338" text-anchor="middle">size limits, timeouts, smuggling checks</text>
+  </a>
+  <a href="#s10" data-go="s10" aria-label="Middleware chain: see the code">
+    <rect class="box" x="208" y="376" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="399" text-anchor="middle">Middleware chain</text>
+    <text class="q" x="368" y="418" text-anchor="middle">(req, res, next) in registration order</text>
+  </a>
+  <a href="#s11" data-go="s11" aria-label="RouteTrie and handler: see how routes are matched">
+    <rect class="box" x="208" y="456" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="479" text-anchor="middle">RouteTrie + handler</text>
+    <text class="q" x="368" y="498" text-anchor="middle">static, then regex :param, :param, *</text>
+  </a>
+  <a href="#s13" data-go="s13" aria-label="Error mapping and ResponseWriter: see how failures become responses">
+    <rect class="box" x="208" y="536" width="320" height="56" rx="8"/>
+    <text class="t n" x="368" y="559" text-anchor="middle">Error mapping + ResponseWriter</text>
+    <text class="q" x="368" y="578" text-anchor="middle">onError, HttpException, else 500; write bytes</text>
+  </a>
+
+  <path class="x" d="M528 164H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="144" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="168" text-anchor="middle">all busy: 503, close</text>
+  <path class="x" d="M528 324H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="304" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="328" text-anchor="middle">bad input: 4xx, close</text>
+  <path class="x" d="M528 484H560" marker-end="url(#ov-arrow-bad)"/>
+  <rect class="x" x="560" y="464" width="176" height="40" rx="8"/>
+  <text class="t" x="648" y="488" text-anchor="middle">no route: 404 or 405</text>
+</svg>
+  </div>
+  <div class="callout">Reading it top to bottom: a connection is accepted, admitted by the semaphore, and run on a virtual thread. After each response it is parked in the poller, and a new virtual thread continues it when the next request arrives.</div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md#request-lifecycle">docs/ARCHITECTURE.md, Request lifecycle</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Server.java">Server.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> draw this on a whiteboard first, then point at each block.
+    <ul><li>The accent block is the only one that holds a thread, and only while a request is being processed.</li>
+    <li>The poller, on the left, is what holds a connection between requests, so waiting costs no thread.</li>
+    <li>Red boxes are the early exits: no free slot and every connection busy, bad input, and no matching route.</li></ul></div></details>
+</article>
+
+<article class="card" id="s2" data-title="Why it exists">
+  <span class="kicker">Why</span>
+  <h2>I learned backend with Express. In Java, the default hides a lot.</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>Express: a route is one line and a server is ten.</li>
+        <li>Spring Boot: powerful, but annotations, dependency injection and auto-configuration hide the machinery.</li>
+        <li>Question: <b>what would a Java framework look like if it felt like Express?</b></li>
+        <li>To hide nothing I started at the lowest level: a <code>ServerSocket</code> and my own HTTP parser (v0.1.0).</li>
+        <li>A review of v0.1 found 15 real problems, so I rewrote it as a multi-module library and closed each one.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">README.md</div>
+<pre>var app = Jolt.create();
+app.get("/hello/:name", (req, res) -&gt;
+    res.json(Map.of("greeting", "Hello " + req.param("name"))));
+app.listen(8080);</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/README.md">README.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the three-line example is the goal; everything else exists to make those lines safe.
+    <ul><li>If asked "why not just use Javalin or Spring?": this was to learn and to see what is under them; the design rules on the next card are the result.</li></ul></div></details>
+</article>
+
+<article class="card" id="s3" data-title="Design rules">
+  <span class="kicker">Principles</span>
+  <h2>Rules that keep it small and safe</h2>
+  <div class="cols even">
+    <ul class="pts">
+      <li><b>Zero runtime dependencies in <code>jolt-core</code></b>: the JDK only. Integrations live in optional modules.</li>
+      <li><b>Secure by default</b>: every limit is on out of the box; risky features (CORS, metrics, static files, MCP, TLS) are opt-in.</li>
+      <li><b>Small, Express-shaped API</b>: a new public method needs an ADR.</li>
+    </ul>
+    <ul class="pts">
+      <li><b>No silent failure</b>: every request gets a response. A handler exception becomes a 500, never a hung connection.</li>
+      <li><b>Every behaviour change ships with a test.</b> Bug fixes start with a failing test.</li>
+      <li><b>No reflection beyond record binding</b>: no classpath scanning, no proxies.</li>
+    </ul>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/CONSTITUTION.md">CONSTITUTION.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/PRINCIPLES.md">docs/PRINCIPLES.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/docs/adr">docs/adr/</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> these are enforced, not aspirational: the API sheet has a token budget checked in CI, and a test fails if the public API mentions the connection handler.
+    <ul><li>Likely question: "how do you stop the API growing?": ADR required for new public API (constitution rules 3 and 6), plus the llms.txt size guard.</li></ul></div></details>
+</article>
+
+<article class="card" id="s4" data-title="Codebase map">
+  <span class="kicker">Shape of the code</span>
+  <h2>One core, small optional modules</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Module / package</th><th>What it holds</th></tr></thead>
+    <tbody>
+      <tr><td><code>jolt-core</code> · <code>in.jolt</code></td><td>The public API: <code>Jolt</code>, <code>App</code>, <code>Router</code>, <code>Request</code>, <code>Response</code>, <code>JoltConfig</code>, <code>Server</code>, middleware such as <code>Cors</code>, <code>Csrf</code>, <code>RateLimit</code></td></tr>
+      <tr><td><code>in.jolt.internal.http</code></td><td>The protocol layer, not API: <code>HttpParser</code>, <code>ConnectionHandler</code>, <code>Poller</code>, <code>ResponseWriter</code>, <code>Limits</code>, <code>Tls</code></td></tr>
+      <tr><td><code>in.jolt.internal.routing</code></td><td><code>RouteTrie</code> and <code>Suggest</code> (the did-you-mean 404)</td></tr>
+      <tr><td><code>in.jolt.test</code></td><td><code>JoltTest</code>, an in-memory client that needs no socket</td></tr>
+      <tr><td><code>jolt-auth</code></td><td>JWT, Basic auth, roles, PBKDF2 <code>PasswordHasher</code>, refresh tokens (uses <code>java-jwt</code>; core takes no dependencies)</td></tr>
+      <tr><td><code>jolt-db</code> · <code>jolt-mcp</code> · <code>jolt-dev</code></td><td>Bounded JDBC pool and transactions; routes as MCP tools; dev restart runner</td></tr>
+      <tr><td><code>examples/todos-solid</code> · <code>jolt-starter</code></td><td>A SOLID reference app and a standalone starter project</td></tr>
+    </tbody>
+  </table></div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/jolt-core/src/main/java/in/jolt">jolt-core/src/main/java/in/jolt</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> only <code>in.jolt</code> is API; anything under <code>internal</code> can change without notice, and a test checks the public API never mentions the connection handler.
+    <ul><li>If asked about a package: protocol bytes live in internal.http, matching lives in internal.routing, everything users touch is in in.jolt.</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-flow" role="tabpanel" aria-labelledby="t-flow">
+<article class="card" id="s5" data-title="One request, end to end">
+  <span class="kicker">Top-down overview</span>
+  <h2>One request, end to end</h2>
+  <p class="sub">Click any stage to jump to the code behind it.</p>
+  <div class="flow">
+    <button type="button" data-go="s6"><span class="n">1</span><span class="t">Accept + admit</span><span class="d">Server.acceptLoop</span></button>
+    <button type="button" data-go="s7"><span class="n">2</span><span class="t">Run on a virtual thread</span><span class="d">Server, Poller</span></button>
+    <button type="button" data-go="s8"><span class="n">3</span><span class="t">Connection loop</span><span class="d">ConnectionHandler.exchange</span></button>
+    <button type="button" data-go="s9"><span class="n">4</span><span class="t">Parse safely</span><span class="d">HttpParser</span></button>
+    <button type="button" data-go="s10"><span class="n">5</span><span class="t">Middleware chain</span><span class="d">App.dispatch, Router.run</span></button>
+    <button type="button" data-go="s11"><span class="n">6</span><span class="t">Route lookup</span><span class="d">RouteTrie</span></button>
+    <button type="button" data-go="s12"><span class="n">7</span><span class="t">Handler</span><span class="d">Handler, Typed</span></button>
+    <button type="button" data-go="s13"><span class="n">8</span><span class="t">Error mapping</span><span class="d">ConnectionHandler.serve</span></button>
+    <button type="button" data-go="s14"><span class="n">9</span><span class="t">Write the response</span><span class="d">ResponseWriter</span></button>
+  </div>
+  <div class="callout">Then the connection either loops back for the next request (keep-alive) or closes, and its connection slot is released exactly once.</div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md#request-lifecycle">docs/ARCHITECTURE.md, Request lifecycle</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> walk the nine stages left to right in one breath, then say "I'll show the code for each".
+    <ul><li>This is the card to come back to if the interviewer asks "walk me through a request".</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-threads" role="tabpanel" aria-labelledby="t-threads">
+<article class="card" id="s6" data-title="1. Accepting connections">
+  <span class="kicker">Stage 1</span>
+  <h2>Accept, then admit or refuse</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>One <b>acceptor thread</b> does nothing but <code>accept()</code>, so it is always ready for the next client.</li>
+        <li>A <code>Semaphore(maxConnections)</code> bounds open connections (default 1000). <code>tryAcquire</code>, never <code>acquire</code>: the accept loop must not block.</li>
+        <li>At the limit, the connection idle longest is closed to make room. Only if every connection is mid-request does the client get a fast <b>503</b>.</li>
+        <li>The slot is released by a close callback that runs exactly once, wherever the connection ends.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../in/jolt/Server.java, acceptLoop (trimmed)</div>
+<pre>while (!closing) {
+    Socket socket = serverSocket.accept();
+    if (!permits.tryAcquire() &amp;&amp; !reclaimIdle()) {
+        ConnectionHandler.reject(socket, config);   <span class="c">// 503 "Server busy", close</span>
+        continue;
+    }
+    var handler = new ConnectionHandler(socket, config, dispatcher,
+            () -&gt; closing, trusted, poller, this::release);
+    live.add(handler);
+    executor.execute(handler);                      <span class="c">// a new virtual thread</span>
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Server.java">Server.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/test/java/in/jolt/ServerTest.java">ServerTest.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> v0.1 created a thread per connection and per request with no cap, so a flood killed the JVM (problem L2). The semaphore is the fix.
+    <ul><li>Follow-up "why 503 and not queue?": a fast refusal is better than making everyone slow; clients can retry.</li>
+    <li>Eviction came later (issue #88): idle connections were using up every slot. It is a scan of the live set, O(n), only at the limit.</li>
+    <li>Tests: <code>connectionFloodBeyondTheCapIsAnswered503AndServerRecovers</code>, <code>idleConnectionIsClosedToAdmitANewOneAtTheLimit</code>.</li></ul></div></details>
+</article>
+
+<article class="card" id="s7" data-title="2. Threads and the poller">
+  <span class="kicker">Stage 2</span>
+  <h2>Few OS threads, many connections</h2>
+  <div class="cols">
+    <div class="stack">
+      <div class="tablewrap"><table>
+        <thead><tr><th>Thread</th><th>Count</th><th>Job</th></tr></thead>
+        <tbody>
+          <tr><td>Acceptor</td><td>1 platform</td><td>accept() and admit</td></tr>
+          <tr><td>Poller</td><td>1 platform</td><td>Wait for idle sockets with one <code>Selector</code></td></tr>
+          <tr><td>Carriers</td><td>about one per core</td><td>Run all virtual threads</td></tr>
+          <tr><td>Handler</td><td>virtual, only while there is work</td><td>Parse, handle, write</td></tr>
+        </tbody>
+      </table></div>
+      <ul class="pts">
+        <li>A virtual thread that blocks on I/O frees its carrier, so blocking code scales.</li>
+        <li>Between requests a plain connection is <b>parked in the poller</b>: its thread ends, and a new one continues it when the socket is readable.</li>
+        <li>TLS connections keep waiting on their own thread, because an <code>SSLSocket</code> cannot be selected on.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../internal/http/Poller.java, run loop</div>
+<pre>while (!closed) {
+    register();                  <span class="c">// parked connections queued by handlers</span>
+    selector.select(tickMillis); <span class="c">// sleeps in epoll or equivalent</span>
+    collectReadable(woken);      <span class="c">// sockets that now have data</span>
+    expire();                    <span class="c">// close idle past keepAliveTimeout</span>
+    if (!woken.isEmpty()) {
+        selector.selectNow();    <span class="c">// flush cancelled keys</span>
+        resume(woken);           <span class="c">// executor.execute(handler::resume)</span>
+        woken.clear();
+    }
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/Poller.java">Poller.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0026-keep-alive-poller.md">ADR 0026</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> I modelled the poller on Tomcat's NIO connector. Be honest about the value.
+    <ul><li>With virtual threads an idle connection was already cheap, so the gain over v0.4.1 is modest: timeouts in one place and reclaimable idle connections. It is not measured.</li>
+    <li>Tomcat benefits more because its workers are expensive OS threads in a fixed pool of 200.</li>
+    <li>Cost: more code, one more thread, and a connection is served by different virtual threads over its life.</li>
+    <li>The JDK picks the selector: epoll on Linux, kqueue on macOS, a wepoll layer on Windows (I confirmed WEPollSelectorImpl on my laptop).</li></ul></div></details>
+</article>
+
+<article class="card" id="s8" data-title="3. The connection loop">
+  <span class="kicker">Stage 3</span>
+  <h2>One connection, many requests, strictly in order</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>Only <b>one thread at a time</b> works on a connection: read, handle, write, repeat. There is no shared response queue, so pipelined responses stay in order.</li>
+        <li>That removed two v0.1 bugs at once: the unsynchronised queue (L3) and the <code>Thread.sleep(250)</code> polling (L1).</li>
+        <li>Timeouts: <code>keepAliveTimeout</code> 5 s idle, <code>readTimeout</code> 10 s once a request starts, <code>maxRequestsPerConnection</code> 100.</li>
+        <li>SSE and WebSocket handlers keep the connection until they finish.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../internal/http/ConnectionHandler.java, exchange (trimmed)</div>
+<pre>for (; served &lt; config.maxRequestsPerConnection(); served++) {
+    if (!ready) {                          <span class="c">// not just woken by the poller</span>
+        if (draining) return;
+        if (poller != null &amp;&amp; in.available() == 0) {
+            poller.park(this);             <span class="c">// this thread ends here</span>
+            return;                        <span class="c">// poller calls resume() later</span>
+        }
+    }
+    socket.setSoTimeout(keepAliveTimeout);
+    first = in.read();                     <span class="c">// timeout: close the idle connection</span>
+    socket.setSoTimeout(readTimeout);      <span class="c">// a request is arriving</span>
+    parsed = HttpParser.parse(in, limits, out);
+    Response res = handle(parsed);
+    ResponseWriter.write(out, res, keep, isHead);
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ConnectionHandler.java">ConnectionHandler.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> ordering is guaranteed by construction, not by a lock: a single thread owns the connection at any moment.
+    <ul><li>Why <code>in.available() == 0</code> before parking: bytes already read into the buffer would never wake the selector, so a pipelined request would hang.</li>
+    <li>HTTP/1.1 has no request ids, so responses must go out in request order (head-of-line blocking). HTTP/2 is not supported.</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-http" role="tabpanel" aria-labelledby="t-http">
+<article class="card" id="s9" data-title="4. Reading HTTP safely">
+  <span class="kicker">Stage 4</span>
+  <h2>My own parser, with every limit on by default</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>Reads exactly <code>Content-Length</code> bytes, or a chunked body, in chunks (v0.1 truncated bodies: L7).</li>
+        <li>Rejects request-smuggling vectors, bare CR/LF, oversize lines, headers and bodies, with the right status.</li>
+        <li>Limits are plain config with safe defaults, so a naive app is still protected.</li>
+      </ul>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Limit</th><th>Default</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Request line</td><td>8 KB</td><td>414</td></tr>
+          <tr><td>Headers (size / count)</td><td>16 KB / 100</td><td>431</td></tr>
+          <tr><td>Body</td><td>1 MB</td><td>413</td></tr>
+          <tr><td>Open connections</td><td>1000</td><td>503</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../internal/http/HttpParser.java</div>
+<pre>String te = headers.get("Transfer-Encoding");
+if (te != null &amp;&amp; headers.containsKey("Content-Length")) {
+    throw bad("Content-Length with Transfer-Encoding");
+}
+if (te != null) {
+    if (!te.equalsIgnoreCase("chunked")) {
+        throw new HttpException(
+                HttpStatus.NOT_IMPLEMENTED, "Unsupported Transfer-Encoding");
+    }
+    return readChunked(in, limits);
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/HttpParser.java">HttpParser.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/JoltConfig.java">JoltConfig.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> a request with both Content-Length and Transfer-Encoding is the classic smuggling setup, so it is refused outright.
+    <ul><li>Trade-off I name myself: a hand-written parser needs heavy testing; Tomcat and Netty have years of fuzzing. I covered this with limits, rejection of ambiguous framing and socket-level tests.</li>
+    <li>Defaults live in JoltConfig.defaults(); the config is an immutable record, so a copy can never change under another thread.</li></ul></div></details>
+</article>
+
+<article class="card" id="s10" data-title="5. Middleware chain">
+  <span class="kicker">Stage 5</span>
+  <h2>Middleware is a chain of responsibility</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li><code>App.dispatch</code> starts the chain; the last link is route resolution.</li>
+        <li>Each middleware gets <code>(req, res, next)</code>. Calling <code>next</code> continues; not calling it stops the request.</li>
+        <li>Layers are matched by path prefix, so middleware can apply to part of the app, and routers can be mounted.</li>
+        <li>v0.1 ran only the first handler (L4); this is the fix.</li>
+      </ul>
+      <div class="file">jolt-core/.../in/jolt/App.java, dispatch</div>
+<pre>req.app(this);
+res.request(req);
+run(req, res, req.path(), () -&gt; {
+    String hint = Suggest.nearest(routes(), req.method(), req.path());
+    throw new NoRoute("No route " + req.method() + " "
+            + req.path() + (hint == null ? "" : ", did you mean " + hint + "?"));
+});</pre>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../in/jolt/Router.java, run and step</div>
+<pre>void run(Request req, Response res, String path, Middleware.Next done) {
+    List&lt;Middleware&gt; chain = layers.stream()
+            .filter(l -&gt; matches(l.prefix, path))
+            .map(Layer::middleware)
+            .toList();
+    step(chain, 0, req, res, path, done);
+}
+
+private void step(List&lt;Middleware&gt; chain, int i, Request req,
+        Response res, String path, Middleware.Next done) {
+    if (i &lt; chain.size()) {
+        chain.get(i).handle(req, res,
+                () -&gt; step(chain, i + 1, req, res, path, done));
+    } else {
+        mount(0, req, res, path, done);
+    }
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Router.java">Router.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/App.java">App.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Middleware.java">Middleware.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> <code>next</code> is just a lambda that calls <code>step</code> with the next index: recursion instead of a loop, which is what lets a middleware run code both before and after the rest of the chain.
+    <ul><li>Order is registration order. The stock middleware (CORS, CSRF, rate limit, request id, sessions) are all this same interface.</li></ul></div></details>
+</article>
+
+<article class="card" id="s11" data-title="6. Routing with a trie">
+  <span class="kicker">Stage 6</span>
+  <h2>Route lookup is a path trie</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>Segments are matched in this order: <b>static</b>, then <b>constrained param</b> (<code>:id(\d+)</code>), then plain <code>:param</code>, then <code>*</code>.</li>
+        <li>A constraint miss falls through to the next kind, so <code>/users/me</code> beats <code>/users/:id</code>.</li>
+        <li>No match: a 404 with a did-you-mean hint. A known path with another method: 405 with <code>Allow</code>. <code>HEAD</code> falls back to <code>GET</code>.</li>
+        <li>v0.1 looked routes up in static maps in registration order (L9, L14); the trie fixed precedence and made the library importable.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../internal/routing/RouteTrie.java</div>
+<pre>/** Path trie with static segments, :param, :param(regex)
+ *  and trailing :param? segments, and a trailing * wildcard.
+ *  Precedence is static, then constrained param
+ *  (registration order), then plain param, then wildcard;
+ *  a constraint miss falls through. */
+public final class RouteTrie&lt;T&gt; {
+    private static final class Node&lt;T&gt; {
+        final Map&lt;String, Node&lt;T&gt;&gt; statics = new HashMap&lt;&gt;();
+        Node&lt;T&gt; param;
+        List&lt;Constrained&lt;T&gt;&gt; constrained;
+        T wildcard;
+        T value;
+        ...
+    }
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/routing/RouteTrie.java">RouteTrie.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/routing/Suggest.java">Suggest.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> lookup walks one segment at a time, so cost depends on path depth, not on how many routes exist.
+    <ul><li>Insertion rejects bad patterns up front: wildcard must be last, no duplicate parameter names, malformed constraints.</li>
+    <li>Why a trie and not a list of regexes: precedence is explicit and cheap, and static segments are hash lookups.</li></ul></div></details>
+</article>
+
+<article class="card" id="s12" data-title="7. Handlers and typed binding">
+  <span class="kicker">Stage 7</span>
+  <h2>Handlers stay one lambda; typed handlers do the binding</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>A plain handler is <code>(req, res) -&gt; ...</code>, as in Express.</li>
+        <li>A <b>typed handler</b> binds path params and a JSON body into a Java record, calls your function, and turns the result (or a <code>Reply</code>) into a response.</li>
+        <li>A bad body is <b>400</b>; a failed validation is <b>422</b>. No reflection beyond record binding.</li>
+        <li>Parameters have types: <code>req.param("id", Long.class)</code>.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">README.md and docs/ARCHITECTURE.md</div>
+<pre>app.get("/hello/:name", (req, res) -&gt;
+    res.json(Map.of("greeting", "Hello " + req.param("name"))));
+
+<span class="c">// typed: params and a JSON body are bound for you</span>
+<span class="c">// Typed.Read, Typed.Write, Typed.Run in jolt-core</span>
+<span class="c">// 400 for a malformed body, 422 for a failed validation</span></pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Typed.java">Typed.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Validate.java">Validate.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Params.java">Params.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> open <code>Typed.java</code> before the talk and be ready to show one bind path; I did not copy its code onto this card because I want you to read it first.
+    <ul><li>Records give immutability and a fixed shape, which keeps binding simple and validation explicit.</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-out" role="tabpanel" aria-labelledby="t-out">
+<article class="card" id="s13" data-title="8. When something fails">
+  <span class="kicker">Stage 8</span>
+  <h2>Every failure becomes a response</h2>
+  <div class="cols">
+    <div class="stack">
+      <ul class="pts">
+        <li>Any throwable from the middleware or handler is caught in one place.</li>
+        <li>A registered <code>onError</code> mapper decides the reply; the mapper closest to the exception type wins.</li>
+        <li>An <code>HttpException</code> keeps its own status. Anything else becomes a generic <b>500 with no details</b>; the stack trace goes to the logger only.</li>
+        <li>Headers set by middleware (CORS, cookies, security headers) survive on error replies. Optional <code>problem+json</code> bodies.</li>
+        <li>v0.1 left the connection hanging on an exception (L6). Now: no silent failure.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="file">jolt-core/.../internal/http/ConnectionHandler.java, serve (trimmed)</div>
+<pre>try {
+    dispatcher.dispatch(req, res);
+    return res;
+} catch (Throwable t) {
+    if (host != null &amp;&amp; host.taken) {
+        <span class="c">// a stream or WebSocket already began: log it, no reply</span>
+        host.failed = true;
+        ...
+        return res;
+    }
+    return failure(dispatcher, config, res, req, t);
+}</pre>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ConnectionHandler.java">ConnectionHandler.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/ErrorMapper.java">ErrorMapper.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0024-error-path-problem-json-and-request-aware-mappers.md">ADR 0024</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> there is exactly one catch for requests, and the in-memory test client (<code>JoltTest</code>) goes through the same <code>respond</code> method, so tests see what a socket client sees.
+    <ul><li>Why no details on a 500: error text can leak internals; the logger gets the stack trace.</li>
+    <li>Auth and rate-limit middleware reject by throwing HttpException (v0.4.1), so they use this same path.</li></ul></div></details>
+</article>
+
+<article class="card" id="s14" data-title="9. Response, streaming, upgrades">
+  <span class="kicker">Stage 9</span>
+  <h2>Writing the response, and when a handler keeps the connection</h2>
+  <div class="cols even">
+    <ul class="pts">
+      <li><code>ResponseWriter</code> serialises the status line, headers and body, and <b>rejects CR/LF in header names and values</b> (header injection).</li>
+      <li>The writer <b>always sets the framing headers itself</b> (<code>Content-Length</code>, <code>Connection</code>, <code>Transfer-Encoding</code>); a handler cannot, so it cannot produce a malformed message.</li>
+      <li>No body for 204, 304 and 1xx. HEAD responses carry headers only.</li>
+    </ul>
+    <ul class="pts">
+      <li><b>SSE, streams and WebSocket</b>: the handler takes over the connection (<code>taken</code>) and keeps its thread until it returns.</li>
+      <li><code>StreamGuard</code> applies an idle timeout (60 s default) and a maximum duration to taken connections.</li>
+      <li>A pub/sub <code>Hub</code> feeds SSE and WebSocket subscribers with bounded queues.</li>
+    </ul>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ResponseWriter.java">ResponseWriter.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/StreamGuard.java">StreamGuard.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Hub.java">Hub.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> a taken connection leaves the normal request loop, so it is never parked in the poller; it ends when the handler returns.
+    <ul><li>Header injection: a value containing a newline could add a forged header, so the writer refuses it.</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-safe" role="tabpanel" aria-labelledby="t-safe">
+<article class="card" id="s15" data-title="Secure by default">
+  <span class="kicker">Security</span>
+  <h2>Safe defaults, risky features opt-in</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Area</th><th>Default behaviour</th></tr></thead>
+    <tbody>
+      <tr><td>Network</td><td>Binds to loopback (<code>127.0.0.1</code>) unless you configure another address</td></tr>
+      <tr><td>Request limits</td><td>Request line, header, body and connection limits and read and keep-alive timeouts all on</td></tr>
+      <tr><td>Protocol attacks</td><td>Request smuggling, header injection and bare CR/LF rejected; path traversal blocked for files</td></tr>
+      <tr><td>Proxy headers</td><td><code>X-Forwarded-*</code> applied only for peers listed in <code>trustProxy</code></td></tr>
+      <tr><td>Opt-in features</td><td>CORS, route listing, metrics, MCP, TLS and static files are off until enabled</td></tr>
+      <tr><td>TLS</td><td>TLS 1.2 or newer when configured</td></tr>
+      <tr><td>Auth</td><td>No default JWT secret, 32-byte minimum; PBKDF2 password hashing; refresh tokens with reuse detection</td></tr>
+      <tr><td>Logging</td><td><code>System.Logger</code> only; request logger records no query string, headers or bodies</td></tr>
+    </tbody>
+  </table></div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/README.md">README.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md (L10 to L13)</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/TrustedProxies.java">TrustedProxies.java</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> v0.1 had hardcoded wildcard CORS, plaintext passwords in the repo and no limits (L10, L11, L13). Each default here maps to a problem I found in my own first version.
+    <ul><li>Be precise: these are defaults and checks I wrote; I have not had an external security review.</li></ul></div></details>
+</article>
+
+<article class="card" id="s16" data-title="How it is tested">
+  <span class="kicker">Testing</span>
+  <h2>Three levels, so a bug has nowhere to hide</h2>
+  <div class="cols even">
+    <div class="stack">
+      <ul class="pts">
+        <li><b>Focused tests per area</b>, for example <code>RoutingTest</code>, <code>RouteConstraintTest</code>, <code>ErrorMappingTest</code>, <code>RateLimitTest</code>, <code>ConfigTest</code>.</li>
+        <li><b>In-memory tests</b> with <code>JoltTest.of(app)</code>: whole requests through the middleware and routes, no socket.</li>
+        <li><b>Real-socket tests</b> (<code>ServerTest</code>, <code>ProtocolTest</code>, with the <code>RawClient</code> helper): keep-alive, pipelining, framing errors, timeouts, flood and recovery.</li>
+      </ul>
+      <div class="callout">Concurrency behaviour is tested over real sockets: for example <code>connectionFloodBeyondTheCapIsAnswered503AndServerRecovers</code> and <code>longestIdleConnectionIsTheOneClosedAtTheLimit</code>.</div>
+    </div>
+    <div class="stack">
+      <div class="chips">
+        <span class="chip"><b>977</b> tests in jolt-core</span>
+        <span class="chip"><b>1,136</b> across all modules</span>
+        <span class="chip"><b>42</b> in ServerTest</span>
+      </div>
+      <ul class="pts">
+        <li>CI on every pull request: <code>mvn verify</code>, a token-budget guard for the API sheet, and CodeQL.</li>
+        <li>Spotless formatting and JaCoCo run in the build.</li>
+        <li>Counts are from my own full run of <code>mvn -B verify</code> on 0.4.2.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/test/JoltTest.java">JoltTest.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/test/java/in/jolt/ServerTest.java">ServerTest.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/.github/workflows/ci.yml">ci.yml</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> when I changed the connection limit behaviour, five existing tests failed because they assumed idle connections hold slots; I changed them to hold requests in flight, and two new tests failed without the fix, which is how I knew they were testing the right thing.
+    <ul><li>Be ready for "what is not tested?": very large inputs and cross-platform performance.</li></ul></div></details>
+</article>
+</section>
+
+<section class="panel" id="p-story" role="tabpanel" aria-labelledby="t-story">
+<article class="card" id="s17" data-title="From v0.1 to v0.4.2">
+  <span class="kicker">Evolution</span>
+  <h2>Fifteen problems found in my own first version, all closed</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Problem (v0.1)</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>L1 sleep-polling, L2 unbounded threads, L3 unsynchronised queue</td><td>Blocking reads on virtual threads, a connection semaphore, and one thread owning a connection</td></tr>
+      <tr><td>L4 first handler only, L5 PUT, L9 router order, DELETE/PATCH</td><td>Middleware chain with <code>next</code>; one registration path; <code>RouteTrie</code></td></tr>
+      <tr><td>L6 hung connection on exception</td><td>Every exception becomes a response</td></tr>
+      <tr><td>L7 truncated bodies, L8 cookies</td><td>Exact-length and chunked reads; validated cookies</td></tr>
+      <tr><td>L10 secrets, L11 no limits, L12 secrets in logs, L13 uploads and CORS</td><td>Secure defaults, request limits, sanitised logging, confined file paths, opt-in CORS</td></tr>
+      <tr><td>L14 not importable, L15 no tests</td><td>Multi-module Maven build; the test suite</td></tr>
+    </tbody>
+  </table></div>
+  <div class="chips">
+    <span class="chip">Releases: <b>v0.2.0</b></span><span class="chip"><b>v0.3.0</b></span><span class="chip"><b>v0.3.1</b></span><span class="chip"><b>v0.4.0</b></span><span class="chip"><b>v0.4.1</b></span><span class="chip"><b>v0.4.2</b> keep-alive poller and idle eviction</span>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/releases">Releases</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/docs/adr">ADRs</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the story I want the interviewer to hear is that I reviewed my own code, wrote down what was wrong, and closed each item with a test.
+    <ul><li>The full table with commit ids is in docs/KRA.md; each fix is cited by commit.</li>
+    <li>Every design decision since then has an ADR, for example 0026 for the poller.</li></ul></div></details>
+</article>
+
+<article class="card" id="s18" data-title="Proof: BookMyShow on Jolt">
+  <span class="kicker">Proof app</span>
+  <h2>BookMyShow, built on Jolt as a user would</h2>
+  <div class="cols even">
+    <ul class="pts">
+      <li>A movie-ticketing app: browse a city's shows, hold seats, pay, webhooks, live seat updates over SSE.</li>
+      <li>It depends on Jolt only through the published artifact (JitPack). The upgrade to <b>v0.4.2</b> has passed CI in a pull request.</li>
+      <li>Gaps I hit became Jolt issues, each with a workaround tracked in <code>docs/JOLT_GAPS.md</code> until fixed.</li>
+      <li>563 tests pass against v0.4.2.</li>
+    </ul>
+    <ul class="pts">
+      <li><b>Layered, and enforced</b>: <code>domain</code> imports only the JDK; <code>application</code> imports <code>domain</code>; <code>web</code> never imports adapters; an <code>ArchitectureTest</code> fails the build otherwise.</li>
+      <li><b>Two people must never get the same seat</b>: a <code>seat_lock</code> table with primary key <code>(show_id, seat_id)</code> is the single guarantee, inside <code>BEGIN IMMEDIATE</code> SQLite transactions.</li>
+      <li>Money is stored in paise as <code>long</code>; time goes through <code>Clock</code>.</li>
+    </ul>
+  </div>
+  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a><a href="https://github.com/THIRU-1074/bookmyshow-jolt/blob/integration/docs/SPEC.md">docs/SPEC.md</a><a href="https://github.com/THIRU-1074/bookmyshow-jolt/blob/integration/docs/JOLT_GAPS.md">docs/JOLT_GAPS.md</a></div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the database guarantee is the primary key, not application checks; the checks only give friendly errors.
+    <ul><li>Why this app: it forces the hard cases (concurrency on a shared resource, idempotent payments, webhooks, streaming).</li>
+    <li>The v0.4.2 upgrade changed no application code; CI and the full verify passed. Check whether that pull request is merged before you say it is deployed.</li></ul></div></details>
+</article>
+</section>
+
+</main>
+
+<div class="foot">Every card quotes the code at the v0.4.2 tag and links to the file. Numbers marked as measured come from the repository docs or from test runs on v0.4.2. Keys: 1 to 7 switch tabs, N opens all speaker notes, T switches the theme.</div>
+
+<script>
+(function () {
+  document.body.classList.add("js");
+  var tabs = Array.prototype.slice.call(document.querySelectorAll("[role=tab]"));
+  var panels = Array.prototype.slice.call(document.querySelectorAll(".panel"));
+  var current = "";
+
+  function panelOf(name) { return document.getElementById("p-" + name); }
+  function showTab(name, updateHash) {
+    if (!panelOf(name)) name = tabs[0].getAttribute("data-tab");
+    current = name;
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-tab") === name;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      if (on && t.scrollIntoView) { try { t.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) {} }
+    });
+    panels.forEach(function (p) { p.hidden = p.id !== "p-" + name; });
+    if (updateHash !== false) {
+      try { history.replaceState(null, "", "#" + name); } catch (e) { /* ignore */ }
+    }
+  }
+  function goCard(id) {
+    var card = document.getElementById(id);
+    if (!card) return;
+    var panel = card.closest(".panel");
+    showTab(panel.id.replace("p-", ""), false);
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    card.classList.add("flash");
+    setTimeout(function () { card.classList.remove("flash"); }, 1600);
+    try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignore */ }
+  }
+  function fromHash() {
+    var h = location.hash.replace("#", "");
+    if (!h) { showTab(tabs[0].getAttribute("data-tab"), false); return; }
+    if (panelOf(h)) { showTab(h, false); return; }
+    if (document.getElementById(h) && document.getElementById(h).classList.contains("card")) { goCard(h); return; }
+    showTab(tabs[0].getAttribute("data-tab"), false);
+  }
+
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { showTab(t.getAttribute("data-tab")); window.scrollTo(0, 0); });
+    t.addEventListener("keydown", function (e) {
+      var k = e.key, n = -1;
+      if (k === "ArrowRight") n = (i + 1) % tabs.length;
+      else if (k === "ArrowLeft") n = (i - 1 + tabs.length) % tabs.length;
+      else if (k === "Home") n = 0;
+      else if (k === "End") n = tabs.length - 1;
+      if (n >= 0) { e.preventDefault(); tabs[n].focus(); showTab(tabs[n].getAttribute("data-tab")); }
+    });
+  });
+
+  panels.forEach(function (p) {
+    var cards = p.querySelectorAll(".card");
+    if (cards.length < 2) return;
+    var bar = document.createElement("div");
+    bar.className = "jumps";
+    bar.appendChild(document.createTextNode("In this tab:"));
+    Array.prototype.forEach.call(cards, function (c) {
+      var a = document.createElement("a");
+      a.href = "#" + c.id;
+      a.textContent = c.getAttribute("data-title");
+      a.addEventListener("click", function (e) { e.preventDefault(); goCard(c.id); });
+      bar.appendChild(a);
+    });
+    p.insertBefore(bar, p.firstChild);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-go]"), function (el) {
+    el.addEventListener("click", function (e) { e.preventDefault(); goCard(el.getAttribute("data-go")); });
+  });
+
+  var notesBtn = document.getElementById("notesBtn");
+  var notesOpen = false;
+  function toggleNotes() {
+    notesOpen = !notesOpen;
+    Array.prototype.forEach.call(document.querySelectorAll("details.notes"), function (d) { d.open = notesOpen; });
+    notesBtn.setAttribute("aria-pressed", notesOpen ? "true" : "false");
+    notesBtn.textContent = (notesOpen ? "Close all notes" : "Open all notes") + " (N)";
+  }
+  function toggleTheme() {
+    var root = document.documentElement;
+    var dark = root.getAttribute("data-theme") === "dark" ||
+      (!root.getAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    root.setAttribute("data-theme", dark ? "light" : "dark");
+  }
+  notesBtn.addEventListener("click", toggleNotes);
+  document.getElementById("themeBtn").addEventListener("click", toggleTheme);
+
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var k = e.key;
+    if (k === "n" || k === "N") toggleNotes();
+    else if (k === "t" || k === "T") toggleTheme();
+    else if (k >= "1" && k <= "9") {
+      var n = parseInt(k, 10) - 1;
+      if (n < tabs.length) { showTab(tabs[n].getAttribute("data-tab")); window.scrollTo(0, 0); }
+    }
+  });
+
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
+})();
+</script>
+</body>
+</html>
