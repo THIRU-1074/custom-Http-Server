@@ -169,8 +169,6 @@ details.notes b { color: var(--accent); }
       <button type="button" role="tab" id="t-out" aria-controls="p-out" data-tab="out" aria-selected="false">5. Errors and responses</button>
       <button type="button" role="tab" id="t-safe" aria-controls="p-safe" data-tab="safe" aria-selected="false">6. Security and tests</button>
       <button type="button" role="tab" id="t-story" aria-controls="p-story" data-tab="story" aria-selected="false">7. History and proof app</button>
-      <button type="button" role="tab" id="t-numbers" aria-controls="p-numbers" data-tab="numbers" aria-selected="false">8. Numbers and limits</button>
-      <button type="button" role="tab" id="t-qa" aria-controls="p-qa" data-tab="qa" aria-selected="false">9. Q&amp;A</button>
     </nav>
   </div>
 </header>
@@ -189,7 +187,7 @@ details.notes b { color: var(--accent); }
   </div>
   <div class="where">Repo: <a href="https://github.com/THIRU-1074/custom-Http-Server">custom-Http-Server</a> · App: <a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a> · Use the tabs above. Press N to open every speaker-notes block.</div>
   <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> one sentence on what it is and why: I wanted Express's feel in Java, so I built it from a ServerSocket.
-    <ul><li>Order of this talk: why, shape of the code, one request end to end, then each stage with the real code, then testing, the proof app, numbers and limits.</li>
+    <ul><li>Order of this talk: why, shape of the code, one request end to end, then each stage with the real code, then security and testing, and the history and proof app.</li>
     <li>Keep the numbers modest and sourced: tests are from my own runs, performance from the README with its caveats.</li></ul></div></details>
 </article>
 
@@ -799,87 +797,9 @@ public final class RouteTrie&lt;T&gt; {
 </article>
 </section>
 
-<section class="panel" id="p-numbers" role="tabpanel" aria-labelledby="t-numbers">
-<article class="card" id="s19" data-title="Numbers, with caveats">
-  <span class="kicker">Measurements</span>
-  <h2>What I measured, and what I did not</h2>
-  <div class="cols even">
-    <div class="stack">
-      <h3>Throughput (authenticated GET /todos)</h3>
-      <div class="tablewrap"><table>
-        <thead><tr><th>Version</th><th>Median req/s</th></tr></thead>
-        <tbody>
-          <tr><td>v0.2.0</td><td>22,337 (runs 21.2k to 22.6k)</td></tr>
-          <tr><td>main, before the poller</td><td>22,561 and 21,887 (two measurements)</td></tr>
-        </tbody>
-      </table></div>
-      <p class="hint" style="color:var(--muted);font-size:.85rem">50 clients, 20 s, 3 runs after warmup, one idle Windows machine (Ryzen 5 5625U), JDK 24, client and server on the same host. Indicative only.</p>
-    </div>
-    <div class="stack">
-      <h3>Tokens for the same todos API</h3>
-      <div class="tablewrap"><table>
-        <thead><tr><th>Framework</th><th>Tokens</th></tr></thead>
-        <tbody>
-          <tr><td>Express</td><td>789</td></tr><tr><td>Jolt</td><td>1017</td></tr><tr><td>Javalin</td><td>1172</td></tr><tr><td>Spring Boot</td><td>1320</td></tr>
-        </tbody>
-      </table></div>
-    </div>
-  </div>
-  <div class="callout warn"><b>Not measured:</b> v0.4.1 against v0.4.2 (the poller), Linux and macOS, and any cross-framework comparison since the early run. The v0.1 Postman figure (27.45 req/s) used a different tool and is not comparable.</div>
-  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/benchmarks/RESULTS.md">benchmarks/RESULTS.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/benchmarks/guard">benchmarks/guard</a></div>
-  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> in one early run Jolt, Spring Boot and Javalin were statistically tied because run-to-run variance was larger than the gaps; I do not claim it is faster than them.
-    <ul><li>If asked "is the poller faster?": I have not measured it; virtual threads already made idle connections cheap.</li></ul></div></details>
-</article>
-
-<article class="card" id="s20" data-title="Limits and trade-offs">
-  <span class="kicker">Honest limits</span>
-  <h2>What it does not do, and what I would do next</h2>
-  <div class="cols even">
-    <ul class="pts">
-      <li><b>HTTP/1.1 only.</b> No HTTP/2, so head-of-line blocking applies to pipelined requests.</li>
-      <li><b>TLS is not selected on.</b> The poller handles plain sockets; TLS connections wait on their own thread. Selecting on TLS needs an <code>SSLEngine</code>.</li>
-      <li><b>A hand-written parser.</b> It needs heavy testing; Tomcat and Netty have years of fuzzing behind them.</li>
-      <li><b>Not on Maven Central yet</b>: published through JitPack (issue #36).</li>
-    </ul>
-    <ul class="pts">
-      <li><b>The poller's gain is modest</b> and unmeasured: virtual threads made idle connections cheap already.</li>
-      <li><b>Idle eviction is a linear scan</b> of live connections, only when the limit is hit.</li>
-      <li><b>Idempotency refusals</b> are written as plain text, not through the shared error path (issue #85).</li>
-      <li><b>Next:</b> benchmark 0.4.1 against 0.4.2 on Linux, publish to Maven Central, and consider TLS through the poller.</li>
-    </ul>
-  </div>
-  <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/issues">Issues</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0026-keep-alive-poller.md">ADR 0026, Consequences</a></div>
-  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> naming limits first is stronger than being asked. Pick two and say what you would do about them.
-    <ul><li>If asked why not Netty: I wanted to understand the layers; for production traffic I would use Tomcat or Netty.</li></ul></div></details>
-</article>
-</section>
-
-<section class="panel" id="p-qa" role="tabpanel" aria-labelledby="t-qa">
-<article class="card" id="s21" data-title="Questions I expect">
-  <span class="kicker">Q&amp;A</span>
-  <h2>Where to look when asked</h2>
-  <div class="tablewrap"><table>
-    <thead><tr><th>If asked</th><th>Show</th><th>One-line answer</th></tr></thead>
-    <tbody>
-      <tr><td>How do you handle many clients?</td><td><code>Server.acceptLoop</code>, <code>Poller</code></td><td>One acceptor, a semaphore limit, virtual threads for work, a selector for idle connections.</td></tr>
-      <tr><td>How is response order guaranteed?</td><td><code>ConnectionHandler.exchange</code></td><td>Only one thread works on a connection at a time; no shared queue.</td></tr>
-      <tr><td>What stops request smuggling?</td><td><code>HttpParser</code></td><td>Content-Length with Transfer-Encoding is refused; framing is strict.</td></tr>
-      <tr><td>How does routing work?</td><td><code>RouteTrie</code></td><td>Static, then constrained param, then param, then wildcard.</td></tr>
-      <tr><td>How does middleware work?</td><td><code>Router.step</code></td><td>Recursion over a list; <code>next</code> continues the chain.</td></tr>
-      <tr><td>What if a handler throws?</td><td><code>ConnectionHandler.serve</code></td><td>One catch: mapper, or HttpException status, or a generic 500.</td></tr>
-      <tr><td>Why virtual threads?</td><td>Connections and threads tab</td><td>Blocking code that scales; idle threads are cheap, unlike pooled OS threads.</td></tr>
-      <tr><td>How do you test concurrency?</td><td><code>ServerTest</code></td><td>Real sockets: floods, eviction, keep-alive, timeouts.</td></tr>
-      <tr><td>How did AI help?</td><td>Your own account</td><td>Prepare this from your prompt log: what it drafted, what you accepted, changed or rejected.</td></tr>
-    </tbody>
-  </table></div>
-  <div class="where"><span>Back to:</span><a href="#s5" data-go="s5">the request overview</a></div>
-  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> for any question, return to the request overview, name the stage, and open the file.
-    <ul><li>If you do not remember why something was done, say what the code does and what you would check.</li></ul></div></details>
-</article>
-</section>
 </main>
 
-<div class="foot">Every card quotes the code at the v0.4.2 tag and links to the file. Numbers marked as measured come from the repository docs or from test runs on v0.4.2. Keys: 1 to 9 switch tabs, N opens all speaker notes, T switches the theme.</div>
+<div class="foot">Every card quotes the code at the v0.4.2 tag and links to the file. Numbers marked as measured come from the repository docs or from test runs on v0.4.2. Keys: 1 to 7 switch tabs, N opens all speaker notes, T switches the theme.</div>
 
 <script>
 (function () {
