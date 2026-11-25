@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jolt: from the socket up</title>
 <style>
-/* Layout: a header bar, one slide at a time in the middle, previous/next at the bottom. Without JavaScript every slide is shown in a single column. */
+/* Layout: a sticky header holds the tab bar. Each tab is a stack of cards, one per topic, each with its code and a collapsible speaker-notes block. Without JavaScript every tab is shown in one column. */
 :root {
   --bg: #f6f7f9;
   --panel: #ffffff;
@@ -35,52 +35,49 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 18px; line-height: 1.55; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 17px; line-height: 1.55; }
 a { color: var(--accent); }
 code { font-family: var(--font-mono); font-size: 0.86em; background: var(--accent-soft); color: var(--ink); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
-button, select { font: inherit; color: var(--ink); }
-button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button, select, summary { font: inherit; color: var(--ink); }
+button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-.bar { display: none; }
-.slide { padding: 28px max(20px, 5vw); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 18px; max-width: 1180px; margin: 0 auto; }
-
-/* deck mode, switched on by the script */
-.deck .bar {
-  display: flex; align-items: center; gap: 12px; padding: 8px max(16px, 3vw); border-bottom: 1px solid var(--line);
-  background: var(--panel); position: fixed; inset: 0 0 auto; height: 52px; z-index: 5;
+.top { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line); }
+.topin { max-width: 1120px; margin: 0 auto; padding: 8px max(16px, 3vw) 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; padding-bottom: 8px; }
+.brand span { color: var(--accent); }
+.tools { margin-left: auto; display: flex; gap: 8px; padding-bottom: 8px; }
+.tools button { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 0.8rem; }
+.tools button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.tabs { display: none; flex: 1 1 100%; order: 3; gap: 2px; overflow-x: auto; margin: 0 -4px; scrollbar-width: thin; }
+.js .tabs { display: flex; }
+.tabs button {
+  flex: 0 0 auto; background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 9px 12px; cursor: pointer;
+  font-size: 0.92rem; font-weight: 600; color: var(--muted); white-space: nowrap;
 }
-.deck .bar .brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
-.deck .bar .brand span { color: var(--accent); }
-.deck .bar select { flex: 1 1 auto; min-width: 0; max-width: 420px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 0.85rem; }
-.deck .bar .count { margin-left: auto; font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
-.deck .bar button { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 0.82rem; }
-.deck main { position: fixed; inset: 52px 0 56px 0; overflow-y: auto; }
-.deck .slide { display: none; border-bottom: 0; min-height: 100%; justify-content: center; }
-.deck .slide.current { display: flex; }
-.deck .pager {
-  position: fixed; inset: auto 0 0 0; height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 0 max(16px, 3vw); background: var(--panel); border-top: 1px solid var(--line); z-index: 5;
-}
-.pager { display: none; }
-.deck .pager { display: flex; }
-.pager button { background: var(--accent); color: var(--bg); border: 0; border-radius: 6px; padding: 8px 18px; font-weight: 600; cursor: pointer; }
-.pager button:disabled { opacity: 0.35; cursor: default; }
-.pager .hint { color: var(--muted); font-size: 0.8rem; text-align: center; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
-h1 { font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.08; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
-h2 { font-size: clamp(1.5rem, 3.2vw, 2.2rem); line-height: 1.15; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+main { max-width: 1120px; margin: 0 auto; padding: 22px max(16px, 3vw) 56px; }
+.panel { display: flex; flex-direction: column; gap: 18px; }
+.panel[hidden] { display: none; }
+.jumps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--muted); }
+.jumps a { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 12px; text-decoration: none; color: var(--ink); }
+.jumps a:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px max(16px, 2.2vw); display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 150px; min-width: 0; }
+.card.flash { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.1; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+h2 { font-size: clamp(1.3rem, 2.6vw, 1.75rem); line-height: 1.2; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
 h3 { font-size: 1rem; margin: 0 0 4px; }
 p { margin: 0; }
-.kicker { font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
-.sub { color: var(--muted); font-size: 1.15rem; max-width: 62ch; }
-.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 22px; align-items: start; }
+.kicker { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.sub { color: var(--muted); font-size: 1.1rem; max-width: 64ch; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 .cols.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 ul.pts { margin: 0; padding-left: 1.15em; display: flex; flex-direction: column; gap: 8px; }
-ul.pts li { padding-left: 2px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; color: var(--muted); }
+.chip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; color: var(--muted); }
 .chip b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
 
 pre {
@@ -88,7 +85,6 @@ pre {
   font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.55; tab-size: 4;
 }
 pre .c { color: var(--code-muted); }
-pre .h { color: #7ee0b4; }
 .file { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin-bottom: 4px; overflow-wrap: anywhere; }
 .where { border-top: 1px dashed var(--line); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); }
 .where a { font-family: var(--font-mono); overflow-wrap: anywhere; }
@@ -101,7 +97,7 @@ tr:last-child td { border-bottom: 0; }
 
 .flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
 .flow button {
-  flex: 1 1 150px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer;
+  flex: 1 1 170px; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer;
   display: flex; flex-direction: column; gap: 2px;
 }
 .flow button:hover { border-color: var(--accent); background: var(--accent-soft); }
@@ -112,43 +108,58 @@ tr:last-child td { border-bottom: 0; }
 .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 0.95rem; }
 .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
 
-.notes { display: none; }
-.show-notes .notes {
-  display: block; position: fixed; inset: auto 0 56px 0; max-height: 40vh; overflow-y: auto; background: var(--panel); border-top: 3px solid var(--accent);
-  padding: 12px max(16px, 3vw); z-index: 6; font-size: 0.92rem; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
-}
-.show-notes .notes:not(.live) { display: none; }
-.notes b { color: var(--accent); }
-.notes ul { margin: 4px 0 0; padding-left: 1.2em; }
+details.notes { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+details.notes summary { cursor: pointer; padding: 8px 12px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+details.notes[open] summary { color: var(--accent); border-bottom: 1px solid var(--line); }
+details.notes .say { padding: 10px 14px; font-size: 0.92rem; }
+details.notes .say ul { margin: 6px 0 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+details.notes b { color: var(--accent); }
 
+.foot { max-width: 1120px; margin: 0 auto; padding: 0 max(16px, 3vw) 40px; color: var(--muted); font-size: 0.82rem; }
+
+@media (min-width: 861px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+}
 @media (max-width: 860px) {
   body { font-size: 16px; }
   .cols, .cols.even { grid-template-columns: minmax(0, 1fr); }
-  .deck .bar select { display: none; }
-  .pager .hint { display: none; }
+  .tools { margin-left: 0; }
 }
 @media print {
-  .bar, .pager { display: none !important; }
-  .deck main { position: static; overflow: visible; }
-  .deck .slide { display: flex !important; page-break-after: always; min-height: 0; }
-  .notes { display: none !important; }
+  .top { position: static; }
+  .tabs, .tools, .jumps { display: none !important; }
+  .panel[hidden] { display: flex !important; }
+  .card { break-inside: avoid; }
+  details.notes { display: none; }
 }
 </style>
 </head>
 <body>
 
-<header class="bar">
-  <div class="brand">Jolt <span>v0.4.2</span></div>
-  <select id="jump" aria-label="Jump to slide"></select>
-  <button id="notesBtn" type="button" aria-pressed="false">Notes (N)</button>
-  <button id="themeBtn" type="button">Theme (T)</button>
-  <div class="count" id="count" aria-live="polite"></div>
+<header class="top">
+  <div class="topin">
+    <div class="brand">Jolt <span>v0.4.2</span></div>
+    <div class="tools">
+      <button id="notesBtn" type="button" aria-pressed="false">Open all notes (N)</button>
+      <button id="themeBtn" type="button">Theme (T)</button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="t-overview" aria-controls="p-overview" data-tab="overview" aria-selected="true">1. Overview</button>
+      <button type="button" role="tab" id="t-flow" aria-controls="p-flow" data-tab="flow" aria-selected="false">2. Request flow</button>
+      <button type="button" role="tab" id="t-threads" aria-controls="p-threads" data-tab="threads" aria-selected="false">3. Connections and threads</button>
+      <button type="button" role="tab" id="t-http" aria-controls="p-http" data-tab="http" aria-selected="false">4. Parsing to handler</button>
+      <button type="button" role="tab" id="t-out" aria-controls="p-out" data-tab="out" aria-selected="false">5. Errors and responses</button>
+      <button type="button" role="tab" id="t-safe" aria-controls="p-safe" data-tab="safe" aria-selected="false">6. Security and tests</button>
+      <button type="button" role="tab" id="t-story" aria-controls="p-story" data-tab="story" aria-selected="false">7. History and proof app</button>
+      <button type="button" role="tab" id="t-numbers" aria-controls="p-numbers" data-tab="numbers" aria-selected="false">8. Numbers and limits</button>
+      <button type="button" role="tab" id="t-qa" aria-controls="p-qa" data-tab="qa" aria-selected="false">9. Q&amp;A</button>
+    </nav>
+  </div>
 </header>
 
-<main id="deck">
-
-<!-- 1 -->
-<section class="slide" id="s1" data-title="Jolt, from the socket up">
+<main>
+<section class="panel" id="p-overview" role="tabpanel" aria-labelledby="t-overview">
+<article class="card" id="s1" data-title="Jolt, from the socket up">
   <span class="kicker">Project walkthrough</span>
   <h1>Jolt: an Express-style web framework for Java, built from the socket up</h1>
   <p class="sub">Routes in one line, no annotations, no container to learn first. Core has no runtime dependencies and needs JDK 21.</p>
@@ -158,14 +169,13 @@ tr:last-child td { border-bottom: 0; }
     <span class="chip"><b>977</b> core tests, <b>1,136</b> across modules</span>
     <span class="chip">proof app: <b>BookMyShow</b></span>
   </div>
-  <div class="where">Repo: <a href="https://github.com/THIRU-1074/custom-Http-Server">custom-Http-Server</a> · App: <a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a> · Use the arrow keys, or the menu above, to move. N shows speaker notes.</div>
-  <aside class="notes"><b>Say:</b> one sentence on what it is and why: I wanted Express's feel in Java, so I built it from a ServerSocket.
+  <div class="where">Repo: <a href="https://github.com/THIRU-1074/custom-Http-Server">custom-Http-Server</a> · App: <a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a> · Use the tabs above. Press N to open every speaker-notes block.</div>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> one sentence on what it is and why: I wanted Express's feel in Java, so I built it from a ServerSocket.
     <ul><li>Order of this talk: why, shape of the code, one request end to end, then each stage with the real code, then testing, the proof app, numbers and limits.</li>
-    <li>Keep the numbers modest and sourced: tests are from my own runs, performance from the README with its caveats.</li></ul></aside>
-</section>
+    <li>Keep the numbers modest and sourced: tests are from my own runs, performance from the README with its caveats.</li></ul></div></details>
+</article>
 
-<!-- 2 -->
-<section class="slide" id="s2" data-title="Why it exists">
+<article class="card" id="s2" data-title="Why it exists">
   <span class="kicker">Why</span>
   <h2>I learned backend with Express. In Java, the default hides a lot.</h2>
   <div class="cols">
@@ -187,12 +197,11 @@ app.listen(8080);</pre>
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/README.md">README.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md</a></div>
-  <aside class="notes"><b>Say:</b> the three-line example is the goal; everything else exists to make those lines safe.
-    <ul><li>If asked "why not just use Javalin or Spring?": this was to learn and to see what is under them; the design rules on the next slide are the result.</li></ul></aside>
-</section>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the three-line example is the goal; everything else exists to make those lines safe.
+    <ul><li>If asked "why not just use Javalin or Spring?": this was to learn and to see what is under them; the design rules on the next card are the result.</li></ul></div></details>
+</article>
 
-<!-- 3 -->
-<section class="slide" id="s3" data-title="Design rules">
+<article class="card" id="s3" data-title="Design rules">
   <span class="kicker">Principles</span>
   <h2>Rules that keep it small and safe</h2>
   <div class="cols even">
@@ -208,12 +217,11 @@ app.listen(8080);</pre>
     </ul>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/CONSTITUTION.md">CONSTITUTION.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/PRINCIPLES.md">docs/PRINCIPLES.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/docs/adr">docs/adr/</a></div>
-  <aside class="notes"><b>Say:</b> these are enforced, not aspirational: the API sheet has a token budget checked in CI, and a test fails if the public API mentions the connection handler.
-    <ul><li>Likely question: "how do you stop the API growing?": ADR required for new public API (constitution rules 3 and 6), plus the llms.txt size guard.</li></ul></aside>
-</section>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> these are enforced, not aspirational: the API sheet has a token budget checked in CI, and a test fails if the public API mentions the connection handler.
+    <ul><li>Likely question: "how do you stop the API growing?": ADR required for new public API (constitution rules 3 and 6), plus the llms.txt size guard.</li></ul></div></details>
+</article>
 
-<!-- 4 -->
-<section class="slide" id="s4" data-title="Codebase map">
+<article class="card" id="s4" data-title="Codebase map">
   <span class="kicker">Shape of the code</span>
   <h2>One core, small optional modules</h2>
   <div class="tablewrap"><table>
@@ -229,12 +237,13 @@ app.listen(8080);</pre>
     </tbody>
   </table></div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/jolt-core/src/main/java/in/jolt">jolt-core/src/main/java/in/jolt</a></div>
-  <aside class="notes"><b>Say:</b> only <code>in.jolt</code> is API; anything under <code>internal</code> can change without notice, and a test checks the public API never mentions the connection handler.
-    <ul><li>If asked about a package: protocol bytes live in internal.http, matching lives in internal.routing, everything users touch is in in.jolt.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> only <code>in.jolt</code> is API; anything under <code>internal</code> can change without notice, and a test checks the public API never mentions the connection handler.
+    <ul><li>If asked about a package: protocol bytes live in internal.http, matching lives in internal.routing, everything users touch is in in.jolt.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 5 -->
-<section class="slide" id="s5" data-title="One request, end to end">
+<section class="panel" id="p-flow" role="tabpanel" aria-labelledby="t-flow">
+<article class="card" id="s5" data-title="One request, end to end">
   <span class="kicker">Top-down overview</span>
   <h2>One request, end to end</h2>
   <p class="sub">Click any stage to jump to the code behind it.</p>
@@ -251,12 +260,13 @@ app.listen(8080);</pre>
   </div>
   <div class="callout">Then the connection either loops back for the next request (keep-alive) or closes, and its connection slot is released exactly once.</div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/ARCHITECTURE.md#request-lifecycle">docs/ARCHITECTURE.md, Request lifecycle</a></div>
-  <aside class="notes"><b>Say:</b> walk the nine stages left to right in one breath, then say "I'll show the code for each".
-    <ul><li>This is the slide to come back to if the interviewer asks "walk me through a request".</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> walk the nine stages left to right in one breath, then say "I'll show the code for each".
+    <ul><li>This is the card to come back to if the interviewer asks "walk me through a request".</li></ul></div></details>
+</article>
 </section>
 
-<!-- 6 -->
-<section class="slide" id="s6" data-title="1. Accepting connections">
+<section class="panel" id="p-threads" role="tabpanel" aria-labelledby="t-threads">
+<article class="card" id="s6" data-title="1. Accepting connections">
   <span class="kicker">Stage 1</span>
   <h2>Accept, then admit or refuse</h2>
   <div class="cols">
@@ -284,14 +294,13 @@ app.listen(8080);</pre>
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Server.java">Server.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/test/java/in/jolt/ServerTest.java">ServerTest.java</a></div>
-  <aside class="notes"><b>Say:</b> v0.1 created a thread per connection and per request with no cap, so a flood killed the JVM (problem L2). The semaphore is the fix.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> v0.1 created a thread per connection and per request with no cap, so a flood killed the JVM (problem L2). The semaphore is the fix.
     <ul><li>Follow-up "why 503 and not queue?": a fast refusal is better than making everyone slow; clients can retry.</li>
     <li>Eviction came later (issue #88): idle connections were using up every slot. It is a scan of the live set, O(n), only at the limit.</li>
-    <li>Tests: <code>connectionFloodBeyondTheCapIsAnswered503AndServerRecovers</code>, <code>idleConnectionIsClosedToAdmitANewOneAtTheLimit</code>.</li></ul></aside>
-</section>
+    <li>Tests: <code>connectionFloodBeyondTheCapIsAnswered503AndServerRecovers</code>, <code>idleConnectionIsClosedToAdmitANewOneAtTheLimit</code>.</li></ul></div></details>
+</article>
 
-<!-- 7 -->
-<section class="slide" id="s7" data-title="2. Threads and the poller">
+<article class="card" id="s7" data-title="2. Threads and the poller">
   <span class="kicker">Stage 2</span>
   <h2>Few OS threads, many connections</h2>
   <div class="cols">
@@ -327,15 +336,14 @@ app.listen(8080);</pre>
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/Poller.java">Poller.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0026-keep-alive-poller.md">ADR 0026</a></div>
-  <aside class="notes"><b>Say:</b> I modelled the poller on Tomcat's NIO connector. Be honest about the value.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> I modelled the poller on Tomcat's NIO connector. Be honest about the value.
     <ul><li>With virtual threads an idle connection was already cheap, so the gain over v0.4.1 is modest: timeouts in one place and reclaimable idle connections. It is not measured.</li>
     <li>Tomcat benefits more because its workers are expensive OS threads in a fixed pool of 200.</li>
     <li>Cost: more code, one more thread, and a connection is served by different virtual threads over its life.</li>
-    <li>The JDK picks the selector: epoll on Linux, kqueue on macOS, a wepoll layer on Windows (I confirmed WEPollSelectorImpl on my laptop).</li></ul></aside>
-</section>
+    <li>The JDK picks the selector: epoll on Linux, kqueue on macOS, a wepoll layer on Windows (I confirmed WEPollSelectorImpl on my laptop).</li></ul></div></details>
+</article>
 
-<!-- 8 -->
-<section class="slide" id="s8" data-title="3. The connection loop">
+<article class="card" id="s8" data-title="3. The connection loop">
   <span class="kicker">Stage 3</span>
   <h2>One connection, many requests, strictly in order</h2>
   <div class="cols">
@@ -367,13 +375,14 @@ app.listen(8080);</pre>
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ConnectionHandler.java">ConnectionHandler.java</a></div>
-  <aside class="notes"><b>Say:</b> ordering is guaranteed by construction, not by a lock: a single thread owns the connection at any moment.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> ordering is guaranteed by construction, not by a lock: a single thread owns the connection at any moment.
     <ul><li>Why <code>in.available() == 0</code> before parking: bytes already read into the buffer would never wake the selector, so a pipelined request would hang.</li>
-    <li>HTTP/1.1 has no request ids, so responses must go out in request order (head-of-line blocking). HTTP/2 is not supported.</li></ul></aside>
+    <li>HTTP/1.1 has no request ids, so responses must go out in request order (head-of-line blocking). HTTP/2 is not supported.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 9 -->
-<section class="slide" id="s9" data-title="4. Reading HTTP safely">
+<section class="panel" id="p-http" role="tabpanel" aria-labelledby="t-http">
+<article class="card" id="s9" data-title="4. Reading HTTP safely">
   <span class="kicker">Stage 4</span>
   <h2>My own parser, with every limit on by default</h2>
   <div class="cols">
@@ -409,13 +418,12 @@ if (te != null) {
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/HttpParser.java">HttpParser.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/JoltConfig.java">JoltConfig.java</a></div>
-  <aside class="notes"><b>Say:</b> a request with both Content-Length and Transfer-Encoding is the classic smuggling setup, so it is refused outright.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> a request with both Content-Length and Transfer-Encoding is the classic smuggling setup, so it is refused outright.
     <ul><li>Trade-off I name myself: a hand-written parser needs heavy testing; Tomcat and Netty have years of fuzzing. I covered this with limits, rejection of ambiguous framing and socket-level tests.</li>
-    <li>Defaults live in JoltConfig.defaults(); the config is an immutable record, so a copy can never change under another thread.</li></ul></aside>
-</section>
+    <li>Defaults live in JoltConfig.defaults(); the config is an immutable record, so a copy can never change under another thread.</li></ul></div></details>
+</article>
 
-<!-- 10 -->
-<section class="slide" id="s10" data-title="5. Middleware chain">
+<article class="card" id="s10" data-title="5. Middleware chain">
   <span class="kicker">Stage 5</span>
   <h2>Middleware is a chain of responsibility</h2>
   <div class="cols">
@@ -457,12 +465,11 @@ private void step(List&lt;Middleware&gt; chain, int i, Request req,
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Router.java">Router.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/App.java">App.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Middleware.java">Middleware.java</a></div>
-  <aside class="notes"><b>Say:</b> <code>next</code> is just a lambda that calls <code>step</code> with the next index: recursion instead of a loop, which is what lets a middleware run code both before and after the rest of the chain.
-    <ul><li>Order is registration order. The stock middleware (CORS, CSRF, rate limit, request id, sessions) are all this same interface.</li></ul></aside>
-</section>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> <code>next</code> is just a lambda that calls <code>step</code> with the next index: recursion instead of a loop, which is what lets a middleware run code both before and after the rest of the chain.
+    <ul><li>Order is registration order. The stock middleware (CORS, CSRF, rate limit, request id, sessions) are all this same interface.</li></ul></div></details>
+</article>
 
-<!-- 11 -->
-<section class="slide" id="s11" data-title="6. Routing with a trie">
+<article class="card" id="s11" data-title="6. Routing with a trie">
   <span class="kicker">Stage 6</span>
   <h2>Route lookup is a path trie</h2>
   <div class="cols">
@@ -494,13 +501,12 @@ public final class RouteTrie&lt;T&gt; {
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/routing/RouteTrie.java">RouteTrie.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/routing/Suggest.java">Suggest.java</a></div>
-  <aside class="notes"><b>Say:</b> lookup walks one segment at a time, so cost depends on path depth, not on how many routes exist.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> lookup walks one segment at a time, so cost depends on path depth, not on how many routes exist.
     <ul><li>Insertion rejects bad patterns up front: wildcard must be last, no duplicate parameter names, malformed constraints.</li>
-    <li>Why a trie and not a list of regexes: precedence is explicit and cheap, and static segments are hash lookups.</li></ul></aside>
-</section>
+    <li>Why a trie and not a list of regexes: precedence is explicit and cheap, and static segments are hash lookups.</li></ul></div></details>
+</article>
 
-<!-- 12 -->
-<section class="slide" id="s12" data-title="7. Handlers and typed binding">
+<article class="card" id="s12" data-title="7. Handlers and typed binding">
   <span class="kicker">Stage 7</span>
   <h2>Handlers stay one lambda; typed handlers do the binding</h2>
   <div class="cols">
@@ -523,12 +529,13 @@ public final class RouteTrie&lt;T&gt; {
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Typed.java">Typed.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Validate.java">Validate.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Params.java">Params.java</a></div>
-  <aside class="notes"><b>Say:</b> open <code>Typed.java</code> before the talk and be ready to show one bind path; I did not copy its code onto this slide because I want you to read it first.
-    <ul><li>Records give immutability and a fixed shape, which keeps binding simple and validation explicit.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> open <code>Typed.java</code> before the talk and be ready to show one bind path; I did not copy its code onto this card because I want you to read it first.
+    <ul><li>Records give immutability and a fixed shape, which keeps binding simple and validation explicit.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 13 -->
-<section class="slide" id="s13" data-title="8. When something fails">
+<section class="panel" id="p-out" role="tabpanel" aria-labelledby="t-out">
+<article class="card" id="s13" data-title="8. When something fails">
   <span class="kicker">Stage 8</span>
   <h2>Every failure becomes a response</h2>
   <div class="cols">
@@ -558,13 +565,12 @@ public final class RouteTrie&lt;T&gt; {
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ConnectionHandler.java">ConnectionHandler.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/ErrorMapper.java">ErrorMapper.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0024-error-path-problem-json-and-request-aware-mappers.md">ADR 0024</a></div>
-  <aside class="notes"><b>Say:</b> there is exactly one catch for requests, and the in-memory test client (<code>JoltTest</code>) goes through the same <code>respond</code> method, so tests see what a socket client sees.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> there is exactly one catch for requests, and the in-memory test client (<code>JoltTest</code>) goes through the same <code>respond</code> method, so tests see what a socket client sees.
     <ul><li>Why no details on a 500: error text can leak internals; the logger gets the stack trace.</li>
-    <li>Auth and rate-limit middleware reject by throwing HttpException (v0.4.1), so they use this same path.</li></ul></aside>
-</section>
+    <li>Auth and rate-limit middleware reject by throwing HttpException (v0.4.1), so they use this same path.</li></ul></div></details>
+</article>
 
-<!-- 14 -->
-<section class="slide" id="s14" data-title="9. Response, streaming, upgrades">
+<article class="card" id="s14" data-title="9. Response, streaming, upgrades">
   <span class="kicker">Stage 9</span>
   <h2>Writing the response, and when a handler keeps the connection</h2>
   <div class="cols even">
@@ -580,12 +586,13 @@ public final class RouteTrie&lt;T&gt; {
     </ul>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/ResponseWriter.java">ResponseWriter.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/StreamGuard.java">StreamGuard.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/Hub.java">Hub.java</a></div>
-  <aside class="notes"><b>Say:</b> a taken connection leaves the normal request loop, so it is never parked in the poller; it ends when the handler returns.
-    <ul><li>Header injection: a value containing a newline could add a forged header, so the writer refuses it.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> a taken connection leaves the normal request loop, so it is never parked in the poller; it ends when the handler returns.
+    <ul><li>Header injection: a value containing a newline could add a forged header, so the writer refuses it.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 15 -->
-<section class="slide" id="s15" data-title="Secure by default">
+<section class="panel" id="p-safe" role="tabpanel" aria-labelledby="t-safe">
+<article class="card" id="s15" data-title="Secure by default">
   <span class="kicker">Security</span>
   <h2>Safe defaults, risky features opt-in</h2>
   <div class="tablewrap"><table>
@@ -602,12 +609,11 @@ public final class RouteTrie&lt;T&gt; {
     </tbody>
   </table></div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/README.md">README.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md (L10 to L13)</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/internal/http/TrustedProxies.java">TrustedProxies.java</a></div>
-  <aside class="notes"><b>Say:</b> v0.1 had hardcoded wildcard CORS, plaintext passwords in the repo and no limits (L10, L11, L13). Each default here maps to a problem I found in my own first version.
-    <ul><li>Be precise: these are defaults and checks I wrote; I have not had an external security review.</li></ul></aside>
-</section>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> v0.1 had hardcoded wildcard CORS, plaintext passwords in the repo and no limits (L10, L11, L13). Each default here maps to a problem I found in my own first version.
+    <ul><li>Be precise: these are defaults and checks I wrote; I have not had an external security review.</li></ul></div></details>
+</article>
 
-<!-- 16 -->
-<section class="slide" id="s16" data-title="How it is tested">
+<article class="card" id="s16" data-title="How it is tested">
   <span class="kicker">Testing</span>
   <h2>Three levels, so a bug has nowhere to hide</h2>
   <div class="cols even">
@@ -633,12 +639,13 @@ public final class RouteTrie&lt;T&gt; {
     </div>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/main/java/in/jolt/test/JoltTest.java">JoltTest.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/jolt-core/src/test/java/in/jolt/ServerTest.java">ServerTest.java</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/.github/workflows/ci.yml">ci.yml</a></div>
-  <aside class="notes"><b>Say:</b> when I changed the connection limit behaviour, five existing tests failed because they assumed idle connections hold slots; I changed them to hold requests in flight, and two new tests failed without the fix, which is how I knew they were testing the right thing.
-    <ul><li>Be ready for "what is not tested?": very large inputs and cross-platform performance.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> when I changed the connection limit behaviour, five existing tests failed because they assumed idle connections hold slots; I changed them to hold requests in flight, and two new tests failed without the fix, which is how I knew they were testing the right thing.
+    <ul><li>Be ready for "what is not tested?": very large inputs and cross-platform performance.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 17 -->
-<section class="slide" id="s17" data-title="From v0.1 to v0.4.2">
+<section class="panel" id="p-story" role="tabpanel" aria-labelledby="t-story">
+<article class="card" id="s17" data-title="From v0.1 to v0.4.2">
   <span class="kicker">Evolution</span>
   <h2>Fifteen problems found in my own first version, all closed</h2>
   <div class="tablewrap"><table>
@@ -656,13 +663,12 @@ public final class RouteTrie&lt;T&gt; {
     <span class="chip">Releases: <b>v0.2.0</b></span><span class="chip"><b>v0.3.0</b></span><span class="chip"><b>v0.3.1</b></span><span class="chip"><b>v0.4.0</b></span><span class="chip"><b>v0.4.1</b></span><span class="chip"><b>v0.4.2</b> keep-alive poller and idle eviction</span>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/KRA.md">docs/KRA.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/releases">Releases</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/docs/adr">ADRs</a></div>
-  <aside class="notes"><b>Say:</b> the story I want the interviewer to hear is that I reviewed my own code, wrote down what was wrong, and closed each item with a test.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the story I want the interviewer to hear is that I reviewed my own code, wrote down what was wrong, and closed each item with a test.
     <ul><li>The full table with commit ids is in docs/KRA.md; each fix is cited by commit.</li>
-    <li>Every design decision since then has an ADR, for example 0026 for the poller.</li></ul></aside>
-</section>
+    <li>Every design decision since then has an ADR, for example 0026 for the poller.</li></ul></div></details>
+</article>
 
-<!-- 18 -->
-<section class="slide" id="s18" data-title="Proof: BookMyShow on Jolt">
+<article class="card" id="s18" data-title="Proof: BookMyShow on Jolt">
   <span class="kicker">Proof app</span>
   <h2>BookMyShow, built on Jolt as a user would</h2>
   <div class="cols even">
@@ -679,13 +685,14 @@ public final class RouteTrie&lt;T&gt; {
     </ul>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/bookmyshow-jolt">bookmyshow-jolt</a><a href="https://github.com/THIRU-1074/bookmyshow-jolt/blob/integration/docs/SPEC.md">docs/SPEC.md</a><a href="https://github.com/THIRU-1074/bookmyshow-jolt/blob/integration/docs/JOLT_GAPS.md">docs/JOLT_GAPS.md</a></div>
-  <aside class="notes"><b>Say:</b> the database guarantee is the primary key, not application checks; the checks only give friendly errors.
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> the database guarantee is the primary key, not application checks; the checks only give friendly errors.
     <ul><li>Why this app: it forces the hard cases (concurrency on a shared resource, idempotent payments, webhooks, streaming).</li>
-    <li>The v0.4.2 upgrade changed no application code; CI and the full verify passed. Check whether that pull request is merged before you say it is deployed.</li></ul></aside>
+    <li>The v0.4.2 upgrade changed no application code; CI and the full verify passed. Check whether that pull request is merged before you say it is deployed.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 19 -->
-<section class="slide" id="s19" data-title="Numbers, with caveats">
+<section class="panel" id="p-numbers" role="tabpanel" aria-labelledby="t-numbers">
+<article class="card" id="s19" data-title="Numbers, with caveats">
   <span class="kicker">Measurements</span>
   <h2>What I measured, and what I did not</h2>
   <div class="cols even">
@@ -712,12 +719,11 @@ public final class RouteTrie&lt;T&gt; {
   </div>
   <div class="callout warn"><b>Not measured:</b> v0.4.1 against v0.4.2 (the poller), Linux and macOS, and any cross-framework comparison since the early run. The v0.1 Postman figure (27.45 req/s) used a different tool and is not comparable.</div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/benchmarks/RESULTS.md">benchmarks/RESULTS.md</a><a href="https://github.com/THIRU-1074/custom-Http-Server/tree/v0.4.2/benchmarks/guard">benchmarks/guard</a></div>
-  <aside class="notes"><b>Say:</b> in one early run Jolt, Spring Boot and Javalin were statistically tied because run-to-run variance was larger than the gaps; I do not claim it is faster than them.
-    <ul><li>If asked "is the poller faster?": I have not measured it; virtual threads already made idle connections cheap.</li></ul></aside>
-</section>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> in one early run Jolt, Spring Boot and Javalin were statistically tied because run-to-run variance was larger than the gaps; I do not claim it is faster than them.
+    <ul><li>If asked "is the poller faster?": I have not measured it; virtual threads already made idle connections cheap.</li></ul></div></details>
+</article>
 
-<!-- 20 -->
-<section class="slide" id="s20" data-title="Limits and trade-offs">
+<article class="card" id="s20" data-title="Limits and trade-offs">
   <span class="kicker">Honest limits</span>
   <h2>What it does not do, and what I would do next</h2>
   <div class="cols even">
@@ -735,12 +741,13 @@ public final class RouteTrie&lt;T&gt; {
     </ul>
   </div>
   <div class="where"><span>In the repo:</span><a href="https://github.com/THIRU-1074/custom-Http-Server/issues">Issues</a><a href="https://github.com/THIRU-1074/custom-Http-Server/blob/v0.4.2/docs/adr/0026-keep-alive-poller.md">ADR 0026, Consequences</a></div>
-  <aside class="notes"><b>Say:</b> naming limits first is stronger than being asked. Pick two and say what you would do about them.
-    <ul><li>If asked why not Netty: I wanted to understand the layers; for production traffic I would use Tomcat or Netty.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> naming limits first is stronger than being asked. Pick two and say what you would do about them.
+    <ul><li>If asked why not Netty: I wanted to understand the layers; for production traffic I would use Tomcat or Netty.</li></ul></div></details>
+</article>
 </section>
 
-<!-- 21 -->
-<section class="slide" id="s21" data-title="Questions I expect">
+<section class="panel" id="p-qa" role="tabpanel" aria-labelledby="t-qa">
+<article class="card" id="s21" data-title="Questions I expect">
   <span class="kicker">Q&amp;A</span>
   <h2>Where to look when asked</h2>
   <div class="tablewrap"><table>
@@ -752,81 +759,100 @@ public final class RouteTrie&lt;T&gt; {
       <tr><td>How does routing work?</td><td><code>RouteTrie</code></td><td>Static, then constrained param, then param, then wildcard.</td></tr>
       <tr><td>How does middleware work?</td><td><code>Router.step</code></td><td>Recursion over a list; <code>next</code> continues the chain.</td></tr>
       <tr><td>What if a handler throws?</td><td><code>ConnectionHandler.serve</code></td><td>One catch: mapper, or HttpException status, or a generic 500.</td></tr>
-      <tr><td>Why virtual threads?</td><td>Slide 7</td><td>Blocking code that scales; idle threads are cheap, unlike pooled OS threads.</td></tr>
+      <tr><td>Why virtual threads?</td><td>Connections and threads tab</td><td>Blocking code that scales; idle threads are cheap, unlike pooled OS threads.</td></tr>
       <tr><td>How do you test concurrency?</td><td><code>ServerTest</code></td><td>Real sockets: floods, eviction, keep-alive, timeouts.</td></tr>
       <tr><td>How did AI help?</td><td>Your own account</td><td>Prepare this from your prompt log: what it drafted, what you accepted, changed or rejected.</td></tr>
     </tbody>
   </table></div>
   <div class="where"><span>Back to:</span><a href="#s5" data-go="s5">the request overview</a></div>
-  <aside class="notes"><b>Say:</b> for any question, return to the request overview, name the stage, and open the file.
-    <ul><li>If you do not remember why something was done, say what the code does and what you would check.</li></ul></aside>
+  <details class="notes"><summary>Speaker notes</summary><div class="say"><b>Say:</b> for any question, return to the request overview, name the stage, and open the file.
+    <ul><li>If you do not remember why something was done, say what the code does and what you would check.</li></ul></div></details>
+</article>
 </section>
-
 </main>
 
-<nav class="pager">
-  <button id="prev" type="button">Back</button>
-  <span class="hint">Arrow keys, Space, Home, End. N notes. T theme.</span>
-  <button id="next" type="button">Next</button>
-</nav>
+<div class="foot">Every card quotes the code at the v0.4.2 tag and links to the file. Numbers marked as measured come from the repository docs or from test runs on v0.4.2. Keys: 1 to 9 switch tabs, N opens all speaker notes, T switches the theme.</div>
 
 <script>
 (function () {
-  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
-  var jump = document.getElementById("jump");
-  var count = document.getElementById("count");
-  var prev = document.getElementById("prev");
-  var next = document.getElementById("next");
-  var notesBtn = document.getElementById("notesBtn");
-  var themeBtn = document.getElementById("themeBtn");
-  var cur = 0;
+  document.body.classList.add("js");
+  var tabs = Array.prototype.slice.call(document.querySelectorAll("[role=tab]"));
+  var panels = Array.prototype.slice.call(document.querySelectorAll(".panel"));
+  var current = "";
 
-  document.body.classList.add("deck");
-
-  slides.forEach(function (s, i) {
-    var o = document.createElement("option");
-    o.value = String(i);
-    o.textContent = (i + 1) + ". " + s.getAttribute("data-title");
-    jump.appendChild(o);
-  });
-
-  function indexFromHash() {
-    var id = location.hash.replace("#", "");
-    for (var i = 0; i < slides.length; i++) if (slides[i].id === id) return i;
-    return 0;
-  }
-  function show(i, updateHash) {
-    cur = Math.max(0, Math.min(slides.length - 1, i));
-    slides.forEach(function (s, k) {
-      s.classList.toggle("current", k === cur);
-      var n = s.querySelector(".notes");
-      if (n) n.classList.toggle("live", k === cur);
+  function panelOf(name) { return document.getElementById("p-" + name); }
+  function showTab(name, updateHash) {
+    if (!panelOf(name)) name = tabs[0].getAttribute("data-tab");
+    current = name;
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-tab") === name;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      if (on && t.scrollIntoView) { try { t.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) {} }
     });
-    jump.value = String(cur);
-    count.textContent = (cur + 1) + " / " + slides.length;
-    prev.disabled = cur === 0;
-    next.disabled = cur === slides.length - 1;
-    document.getElementById("deck").scrollTop = 0;
-    document.title = "Jolt: " + slides[cur].getAttribute("data-title");
+    panels.forEach(function (p) { p.hidden = p.id !== "p-" + name; });
     if (updateHash !== false) {
-      try { history.replaceState(null, "", "#" + slides[cur].id); } catch (e) { location.hash = slides[cur].id; }
+      try { history.replaceState(null, "", "#" + name); } catch (e) { /* ignore */ }
     }
   }
-  function go(id) {
-    for (var i = 0; i < slides.length; i++) if (slides[i].id === id) { show(i); return; }
+  function goCard(id) {
+    var card = document.getElementById(id);
+    if (!card) return;
+    var panel = card.closest(".panel");
+    showTab(panel.id.replace("p-", ""), false);
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    card.classList.add("flash");
+    setTimeout(function () { card.classList.remove("flash"); }, 1600);
+    try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignore */ }
+  }
+  function fromHash() {
+    var h = location.hash.replace("#", "");
+    if (!h) { showTab(tabs[0].getAttribute("data-tab"), false); return; }
+    if (panelOf(h)) { showTab(h, false); return; }
+    if (document.getElementById(h) && document.getElementById(h).classList.contains("card")) { goCard(h); return; }
+    showTab(tabs[0].getAttribute("data-tab"), false);
   }
 
-  prev.addEventListener("click", function () { show(cur - 1); });
-  next.addEventListener("click", function () { show(cur + 1); });
-  jump.addEventListener("change", function () { show(parseInt(jump.value, 10)); });
-  Array.prototype.forEach.call(document.querySelectorAll("[data-go]"), function (el) {
-    el.addEventListener("click", function (e) { e.preventDefault(); go(el.getAttribute("data-go")); });
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { showTab(t.getAttribute("data-tab")); window.scrollTo(0, 0); });
+    t.addEventListener("keydown", function (e) {
+      var k = e.key, n = -1;
+      if (k === "ArrowRight") n = (i + 1) % tabs.length;
+      else if (k === "ArrowLeft") n = (i - 1 + tabs.length) % tabs.length;
+      else if (k === "Home") n = 0;
+      else if (k === "End") n = tabs.length - 1;
+      if (n >= 0) { e.preventDefault(); tabs[n].focus(); showTab(tabs[n].getAttribute("data-tab")); }
+    });
   });
-  window.addEventListener("hashchange", function () { show(indexFromHash(), false); });
 
+  panels.forEach(function (p) {
+    var cards = p.querySelectorAll(".card");
+    if (cards.length < 2) return;
+    var bar = document.createElement("div");
+    bar.className = "jumps";
+    bar.appendChild(document.createTextNode("In this tab:"));
+    Array.prototype.forEach.call(cards, function (c) {
+      var a = document.createElement("a");
+      a.href = "#" + c.id;
+      a.textContent = c.getAttribute("data-title");
+      a.addEventListener("click", function (e) { e.preventDefault(); goCard(c.id); });
+      bar.appendChild(a);
+    });
+    p.insertBefore(bar, p.firstChild);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-go]"), function (el) {
+    el.addEventListener("click", function (e) { e.preventDefault(); goCard(el.getAttribute("data-go")); });
+  });
+
+  var notesBtn = document.getElementById("notesBtn");
+  var notesOpen = false;
   function toggleNotes() {
-    var on = document.body.classList.toggle("show-notes");
-    notesBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    notesOpen = !notesOpen;
+    Array.prototype.forEach.call(document.querySelectorAll("details.notes"), function (d) { d.open = notesOpen; });
+    notesBtn.setAttribute("aria-pressed", notesOpen ? "true" : "false");
+    notesBtn.textContent = (notesOpen ? "Close all notes" : "Open all notes") + " (N)";
   }
   function toggleTheme() {
     var root = document.documentElement;
@@ -835,21 +861,21 @@ public final class RouteTrie&lt;T&gt; {
     root.setAttribute("data-theme", dark ? "light" : "dark");
   }
   notesBtn.addEventListener("click", toggleNotes);
-  themeBtn.addEventListener("click", toggleTheme);
+  document.getElementById("themeBtn").addEventListener("click", toggleTheme);
 
   document.addEventListener("keydown", function (e) {
-    if (e.target && (e.target.tagName === "SELECT" || e.target.tagName === "INPUT")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var k = e.key;
-    if (k === "ArrowRight" || k === "PageDown" || k === " ") { e.preventDefault(); show(cur + 1); }
-    else if (k === "ArrowLeft" || k === "PageUp") { e.preventDefault(); show(cur - 1); }
-    else if (k === "Home") { e.preventDefault(); show(0); }
-    else if (k === "End") { e.preventDefault(); show(slides.length - 1); }
-    else if (k === "n" || k === "N") { toggleNotes(); }
-    else if (k === "t" || k === "T") { toggleTheme(); }
+    if (k === "n" || k === "N") toggleNotes();
+    else if (k === "t" || k === "T") toggleTheme();
+    else if (k >= "1" && k <= "9") {
+      var n = parseInt(k, 10) - 1;
+      if (n < tabs.length) { showTab(tabs[n].getAttribute("data-tab")); window.scrollTo(0, 0); }
+    }
   });
 
-  show(indexFromHash(), false);
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
 })();
 </script>
 </body>
